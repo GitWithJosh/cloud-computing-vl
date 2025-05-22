@@ -1,0 +1,13 @@
+name: calo-guessr-openstack
+runtime: python
+description: Deploy Calorie Guesser application to OpenStack
+
+template:
+  description: OpenStack deployment for Calorie Guesser Python application
+  config:
+    version:
+      description: Version of the script to deploy (v1 or v2)
+      default: v1
+    key_pair:
+      description: SSH key pair name for instance access
+      secret: false
