@@ -2,8 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: caloguessr-deployment
+  labels:
+    app: caloguessr
+    version: v1.0
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: caloguessr
@@ -11,18 +14,28 @@ spec:
     metadata:
       labels:
         app: caloguessr
+        version: v1.0
     spec:
       containers:
       - name: caloguessr
         image: caloguessr-app:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Never
         ports:
         - containerPort: 8501
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: caloguessr-service
+  labels:
+    app: caloguessr
 spec:
   type: NodePort
   selector:
@@ -31,3 +44,22 @@ spec:
     - port: 8501
       targetPort: 8501
       nodePort: 30001
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: caloguessr-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: caloguessr-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
