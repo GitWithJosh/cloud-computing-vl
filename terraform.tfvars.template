@@ -1,0 +1,23 @@
+# Terraform Variables Template
+# Copy this file to terraform.tfvars and adjust values
+# Find these values in your OpenStack dashboard
+
+# OpenStack Image ID (Ubuntu 24.04 LTS recommended)
+# Go to: Compute > Images to find your Ubuntu image ID
+image_id = "your-ubuntu-image-id-here"
+
+# Instance flavor (minimum: 2 vCPU, 4GB RAM recommended for K8s)
+# Go to: Admin > Flavors or use: openstack flavor list
+flavor_name = "your-flavor-name-here"
+
+# Network name in your OpenStack project
+# Go to: Network > Networks to see available networks
+network_name = "your-network-name-here"
+
+# Your SSH key pair name in OpenStack
+# Go to: Compute > Key Pairs to see your keys
+# Change "your-ssh-key-name" to your actual SSH key name
+key_pair = "your-ssh-key-name-here"
+
+# Number of worker nodes (default: 2, adjust as needed)
+worker_count = 2

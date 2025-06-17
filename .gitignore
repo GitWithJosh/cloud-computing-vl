@@ -4,11 +4,12 @@
 .terraform/
 .terraform.lock.hcl
 
-# Secrets
+# Secrets & Credentials
 terraform.tfvars.backup
 *secret*
 *.pem
 *.key
+openrc.sh
 
 # IDE
 .vscode/

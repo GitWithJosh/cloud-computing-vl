@@ -1,0 +1,52 @@
+#!/bin/bash
+
+echo "🆘 OpenStack Configuration Help"
+echo "==============================="
+echo ""
+
+echo "📋 How to find your OpenStack settings:"
+echo ""
+
+echo "1. 🔑 OpenStack Credentials (openrc.sh):"
+echo "   - Log into your OpenStack dashboard"
+echo "   - Go to: Project > API Access"
+echo "   - Click 'Download OpenStack RC File v3'"
+echo "   - Copy the values to openrc.sh"
+echo ""
+
+echo "2. 🖼️  Ubuntu Image ID:"
+echo "   - Go to: Compute > Images"
+echo "   - Find 'Ubuntu 24.04' or similar"
+echo "   - Copy the ID (long string like: c57c2aef-f74a-...)"
+echo ""
+
+echo "3. ⚡ Instance Flavor:"
+echo "   - Go to: Admin > Flavors (or Project > Compute > Flavors)"
+echo "   - Choose: cb1.medium (2 vCPU, 4GB RAM) or similar"
+echo "   - Use the exact name"
+echo ""
+
+echo "4. 🌐 Network Name:"
+echo "   - Go to: Network > Networks"
+echo "   - Find your project network (e.g., provider_912)"
+echo "   - Use the exact name"
+echo ""
+
+echo "5. 🔑 SSH Key Pair:"
+echo "   - Go to: Compute > Key Pairs"
+echo "   - Find your SSH key name"
+echo "   - If none exists, create one: 'Create Key Pair'"
+echo ""
+
+echo "💡 Example configuration:"
+echo "   image_id = \"c57c2aef-f74a-4418-94ca-d3fb169162bf\""
+echo "   flavor_name = \"cb1.medium\""
+echo "   network_name = \"provider_912\""
+echo "   key_pair = \"my-ssh-key\""
+echo ""
+
+echo "🔧 Testing your configuration:"
+echo "   source openrc.sh"
+echo "   openstack server list    # Should show your instances"
+echo "   openstack image list     # Should show available images"
+echo "   openstack flavor list    # Should show available flavors"
