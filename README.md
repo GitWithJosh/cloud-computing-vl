@@ -253,10 +253,11 @@ v1.0.0 - Initial Release
 # 📋 Application Logs
 ./version-manager.sh logs
 
-# 🔧 Manuelle SSH-Verbindung
+# 🔧 Manuelle SSH-Verbindung (automatisch richtiger SSH-Key)
 source openrc.sh
 MASTER_IP=$(terraform output -raw master_ip)
-ssh -i ~/.ssh/YOUR-SSH-KEY ubuntu@$MASTER_IP
+SSH_KEY=$(grep "key_pair" terraform.tfvars | cut -d'"' -f2)
+ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 ```
 
 ### Häufige Probleme
@@ -264,6 +265,7 @@ ssh -i ~/.ssh/YOUR-SSH-KEY ubuntu@$MASTER_IP
 | Problem | Symptom | Lösung |
 |---------|---------|--------|
 | **SSH-Verbindung fehlschlägt** | Connection refused | SSH-Key Name in terraform.tfvars prüfen |
+| **SSH-Key nicht gefunden** | Permission denied | Prüfen ob `~/.ssh/YOUR-KEY` existiert |
 | **App startet nicht** | Pods in `Pending` Status | `./version-manager.sh debug` |
 | **OpenStack-Fehler** | Authentication failed | openrc.sh Credentials prüfen |
 | **Workers joinen nicht** | Nur Master Node sichtbar | Cloud-init Logs prüfen |

@@ -2,6 +2,24 @@
 
 source openrc.sh
 
+# Function to get SSH key from terraform output
+get_ssh_key() {
+    if [ -f terraform.tfstate ]; then
+        SSH_KEY=$(terraform output -raw ssh_master 2>/dev/null | grep -o "\-i ~/.ssh/[^ ]*" | cut -d'/' -f4)
+        if [ -n "$SSH_KEY" ]; then
+            echo "$SSH_KEY"
+        else
+            # Fallback: try to get from terraform.tfvars
+            SSH_KEY=$(grep "key_pair" terraform.tfvars 2>/dev/null | cut -d'"' -f2)
+            echo "$SSH_KEY"
+        fi
+    else
+        # Fallback: try to get from terraform.tfvars
+        SSH_KEY=$(grep "key_pair" terraform.tfvars 2>/dev/null | cut -d'"' -f2)
+        echo "$SSH_KEY"
+    fi
+}
+
 show_help() {
     echo "🚀 Kubernetes Cluster Version Manager"
     echo ""
@@ -44,6 +62,13 @@ deploy_version() {
     terraform init
     terraform apply -auto-approve
     
+    # Get SSH key
+    local ssh_key=$(get_ssh_key)
+    if [ -z "$ssh_key" ]; then
+        echo "❌ Could not determine SSH key name"
+        exit 1
+    fi
+    
     # Show results
     echo ""
     echo "✅ Deployment complete!"
@@ -58,8 +83,8 @@ deploy_version() {
     local master_ip=$(terraform output -raw master_ip)
     echo "📊 Cluster status:"
     
-    # Mit korrekten SSH-Optionen
-    ssh -i ~/.ssh/shooosh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@$master_ip "
+    # Mit dynamischem SSH-Key
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@$master_ip "
         echo '=== Nodes ==='
         kubectl get nodes
         echo
@@ -85,12 +110,13 @@ deploy_version() {
     echo ""
     echo "🔍 Final status check..."
     sleep 30
-    check_app_status $master_ip
+    check_app_status $master_ip $ssh_key
 }
 
 check_app_status() {
     local master_ip=$1
-    ssh -i ~/.ssh/shooosh -o StrictHostKeyChecking=no ubuntu@$master_ip "
+    local ssh_key=$2
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
         echo '=== Final App Status ==='
         kubectl get pods -l app=caloguessr
         echo
@@ -150,15 +176,18 @@ show_status() {
     
     if [ -f terraform.tfstate ]; then
         local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+        local ssh_key=$(get_ssh_key)
+        
         if [ -n "$master_ip" ]; then
             echo "✅ Infrastructure: Deployed"
             echo "Master IP: $master_ip"
             echo "App URL: $(terraform output -raw app_url)"
+            echo "SSH Key: $ssh_key"
             echo ""
             
-            if ssh -i ~/.ssh/shooosh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ubuntu@$master_ip "echo" 2>/dev/null; then
+            if [ -n "$ssh_key" ] && ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no -o ConnectTimeout=5 ubuntu@$master_ip "echo" 2>/dev/null; then
                 echo "📊 Kubernetes Status:"
-                ssh -i ~/.ssh/shooosh -o StrictHostKeyChecking=no ubuntu@$master_ip "
+                ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
                     echo '=== Nodes ==='
                     kubectl get nodes
                     echo
@@ -178,7 +207,7 @@ show_status() {
                     kubectl get hpa 2>/dev/null || echo 'HPA not available'
                 " 2>/dev/null
             else
-                echo "❌ Cannot connect to cluster"
+                echo "❌ Cannot connect to cluster (SSH Key: $ssh_key)"
             fi
         else
             echo "❌ No infrastructure deployed"
@@ -190,14 +219,21 @@ show_status() {
 
 show_logs() {
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
     if [ -z "$master_ip" ]; then
         echo "❌ No cluster deployed"
         exit 1
     fi
     
+    if [ -z "$ssh_key" ]; then
+        echo "❌ Could not determine SSH key"
+        exit 1
+    fi
+    
     echo "📋 Application Logs"
     echo "==================="
-    ssh -i ~/.ssh/shooosh -o StrictHostKeyChecking=no ubuntu@$master_ip "
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
         echo '=== Recent Pod Events ==='
         kubectl get events --sort-by=.metadata.creationTimestamp | tail -10
         echo
@@ -211,15 +247,23 @@ show_logs() {
 
 debug_cluster() {
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
     if [ -z "$master_ip" ]; then
         echo "❌ No cluster deployed"
         exit 1
     fi
     
+    if [ -z "$ssh_key" ]; then
+        echo "❌ Could not determine SSH key"
+        exit 1
+    fi
+    
     echo "🔍 Debug Information"
     echo "===================="
+    echo "Using SSH key: $ssh_key"
     
-    ssh -i ~/.ssh/shooosh -o StrictHostKeyChecking=no ubuntu@$master_ip "
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
         echo '=== Docker Images ==='
         sudo docker images
         echo
@@ -253,18 +297,25 @@ scale_app() {
     fi
     
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
     if [ -z "$master_ip" ]; then
         echo "❌ No cluster deployed"
         exit 1
     fi
     
+    if [ -z "$ssh_key" ]; then
+        echo "❌ Could not determine SSH key"
+        exit 1
+    fi
+    
     echo "📈 Scaling to $replicas replicas..."
-    ssh -i ~/.ssh/shooosh -o StrictHostKeyChecking=no ubuntu@$master_ip "kubectl scale deployment caloguessr-deployment --replicas=$replicas"
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "kubectl scale deployment caloguessr-deployment --replicas=$replicas"
     
     echo "⏳ Waiting for scaling..."
     sleep 10
     
-    ssh -i ~/.ssh/shooosh -o StrictHostKeyChecking=no ubuntu@$master_ip "kubectl get pods -l app=caloguessr"
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "kubectl get pods -l app=caloguessr"
 }
 
 cleanup() {
