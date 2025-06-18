@@ -16,7 +16,8 @@ network_name = "your-network-name-here"
 
 # Your SSH key pair name in OpenStack
 # Go to: Compute > Key Pairs to see your keys
-# Change "your-ssh-key-name" to your actual SSH key name
+# IMPORTANT: This must match your local SSH key file name!
+# Example: if key_pair = "mykey", then ~/.ssh/mykey must exist
 key_pair = "your-ssh-key-name-here"
 
 # Number of worker nodes (default: 2, adjust as needed)
