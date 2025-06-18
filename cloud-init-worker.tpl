@@ -4,6 +4,32 @@ packages:
   - docker.io
   - curl
 
+write_files:
+  - path: /root/get-app-image.sh
+    content: |
+      #!/bin/bash
+      echo "Getting application image from master..."
+      MASTER_IP="${master_ip}"
+      
+      # Wait for master to have the image
+      for i in {1..10}; do
+        if ssh -o StrictHostKeyChecking=no ubuntu@$MASTER_IP "sudo docker images | grep -q caloguessr-app" 2>/dev/null; then
+          echo "Master has the image, copying..."
+          break
+        fi
+        echo "Attempt $i/10 - waiting for master to build image..."
+        sleep 30
+      done
+      
+      # Copy image from master
+      ssh -o StrictHostKeyChecking=no ubuntu@$MASTER_IP "sudo docker save caloguessr-app:latest" | sudo docker load
+      
+      # Import to K3s
+      sudo docker save caloguessr-app:latest | sudo /usr/local/bin/k3s ctr images import -
+      
+      echo "Application image ready on worker"
+    permissions: '0755'
+
 runcmd:
   # Docker Setup
   - systemctl start docker
@@ -46,6 +72,11 @@ runcmd:
   -   echo "Failed to get token, manual join required"
   - fi
   
-  # Verify join
+  # Get application image
+  - sleep 60  # Wait for worker to be fully joined
+  - /root/get-app-image.sh || echo "Failed to get app image"
+  
+  # Verify join and image
   - sleep 30
   - systemctl status k3s-agent || echo "K3s agent not running"
+  - sudo docker images | grep caloguessr || echo "App image not found"

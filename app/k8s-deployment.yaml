@@ -16,6 +16,8 @@ spec:
         app: caloguessr
         version: v1.0
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: k8s-master
       containers:
       - name: caloguessr
         image: caloguessr-app:latest
