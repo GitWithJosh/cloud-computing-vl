@@ -1,4 +1,4 @@
-# 🚀 Kubernetes Multi-Node Cluster mit Streamlit CalogueSSR App
+# 🚀 Kubernetes Multi-Node Cluster mit Streamlit Caloguessr App
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Terraform](https://img.shields.io/badge/Terraform-1.0+-blue.svg)](https://terraform.io)
@@ -162,7 +162,7 @@ cat terraform.tfvars.template
 
 ## 📱 Anwendung
 
-### CalogueSSR - KI-Kalorien-Schätzer
+### Caloguessr - KI-Kalorien-Schätzer
 
 Die Streamlit-Anwendung ermöglicht:
 
