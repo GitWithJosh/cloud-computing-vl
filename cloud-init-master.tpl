@@ -25,6 +25,7 @@ write_files:
     content: |
       #!/bin/bash
       # Setup SSH for inter-node communication
+      mkdir -p /root/.ssh
       mkdir -p /home/ubuntu/.ssh
       cp /home/ubuntu/.ssh/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || true
       chmod 600 /root/.ssh/authorized_keys 2>/dev/null || true
@@ -70,11 +71,14 @@ write_files:
       for i in {1..30}; do
         if kubectl get pods -n kube-system --no-headers 2>/dev/null | grep -q Running; then
           echo "System pods are running"
-          return 0
+          exit 0
         fi
         echo "Attempt $i/30 - System pods not ready..."
         sleep 10
       done
+      
+      echo "K3s setup completed after waiting"
+      exit 0
     permissions: '0755'
   - path: /root/deploy-app.sh
     content: |
@@ -132,7 +136,9 @@ write_files:
       chmod 644 /tmp/master-ready
       
       # Also create a simple HTTP endpoint for workers to check
-      echo "K3s Master Ready" > /var/www/html/ready 2>/dev/null || echo "K3s Master Ready" > /tmp/ready
+      mkdir -p /tmp/web
+      echo "K3s Master Ready" > /tmp/web/ready
+      cd /tmp/web && python3 -m http.server 80 &
     permissions: '0755'
 
 runcmd:
