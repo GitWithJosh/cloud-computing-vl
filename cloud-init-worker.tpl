@@ -57,7 +57,7 @@ write_files:
         TOKEN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o UserKnownHostsFile=/dev/null ubuntu@$MASTER_IP "sudo cat /var/lib/rancher/k3s/server/node-token" 2>/dev/null)
         
         if [ -n "$TOKEN" ] && [ "$TOKEN" != "" ]; then
-          echo "Got token via ubuntu user: ${TOKEN:0:20}..."
+          echo "Got token via ubuntu user: $${TOKEN:0:20}..."
           echo "$TOKEN" > /tmp/k3s-token
           return 0
         fi
@@ -66,7 +66,7 @@ write_files:
         TOKEN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o UserKnownHostsFile=/dev/null root@$MASTER_IP "cat /var/lib/rancher/k3s/server/node-token" 2>/dev/null)
         
         if [ -n "$TOKEN" ] && [ "$TOKEN" != "" ]; then
-          echo "Got token via root user: ${TOKEN:0:20}..."
+          echo "Got token via root user: $${TOKEN:0:20}..."
           echo "$TOKEN" > /tmp/k3s-token
           return 0
         fi
@@ -94,7 +94,7 @@ write_files:
         return 1
       fi
       
-      echo "Joining cluster with token: ${TOKEN:0:20}..."
+      echo "Joining cluster with token: $${TOKEN:0:20}..."
       
       # Install K3s agent
       curl -sfL https://get.k3s.io | K3S_URL=https://$MASTER_IP:6443 K3S_TOKEN=$TOKEN sh -
