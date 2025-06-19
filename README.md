@@ -72,7 +72,7 @@ Das Projekt erfüllt alle Anforderungen der Portfolio-Prüfung "Cloud Computing 
 1. **Repository klonen**
    ```bash
    git clone <repository-url>
-   cd cloud-computing-vl/cloud-project
+   cd cloud-computing-vl
    ```
 
 2. **Setup ausführen**
