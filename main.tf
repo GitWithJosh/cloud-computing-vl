@@ -5,12 +5,16 @@ terraform {
     }
     openstack = {
       source  = "terraform-provider-openstack/openstack"
-      version = "~> 1.54"
     }
   }
 }
 
 provider "openstack" {}
+
+# Read SSH public key
+data "local_file" "ssh_public_key" {
+  filename = pathexpand("~/.ssh/${var.key_pair}.pub")
+}
 
 # Security Group für K8s Cluster
 resource "openstack_networking_secgroup_v2" "k8s_cluster" {
@@ -63,6 +67,7 @@ resource "openstack_compute_instance_v2" "k8s_master" {
     dockerfile        = base64encode(file("app/Dockerfile"))
     requirements_txt  = base64encode(file("app/requirements.txt"))
     k8s_deployment    = base64encode(file("app/k8s-deployment.yaml"))
+    ssh_public_key    = trimspace(data.local_file.ssh_public_key.content)
   })
 }
 
@@ -78,32 +83,10 @@ resource "openstack_compute_instance_v2" "k8s_workers" {
     name = var.network_name
   }
   user_data = templatefile("cloud-init-worker.tpl", {
-    master_ip = openstack_compute_instance_v2.k8s_master.access_ip_v4
+    master_ip      = openstack_compute_instance_v2.k8s_master.access_ip_v4
+    ssh_public_key = trimspace(data.local_file.ssh_public_key.content)
   })
   depends_on = [openstack_compute_instance_v2.k8s_master]
 }
 
-# Outputs
-output "master_ip" {
-  value = openstack_compute_instance_v2.k8s_master.access_ip_v4
-}
-
-output "worker_ips" {
-  value = openstack_compute_instance_v2.k8s_workers[*].access_ip_v4
-}
-
-output "ssh_master" {
-  value = "ssh -i ~/.ssh/${var.key_pair} ubuntu@${openstack_compute_instance_v2.k8s_master.access_ip_v4}"
-}
-
-output "app_url" {
-  value = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}:30001"
-}
-
-output "cluster_info" {
-  value = {
-    master_ip = openstack_compute_instance_v2.k8s_master.access_ip_v4
-    workers   = openstack_compute_instance_v2.k8s_workers[*].access_ip_v4
-    app_url   = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}:30001"
-  }
-}
+# ...existing outputs...
