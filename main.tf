@@ -5,11 +5,16 @@ terraform {
     }
     openstack = {
       source  = "terraform-provider-openstack/openstack"
+      version = "~> 1.54"
     }
   }
 }
 
-provider "openstack" {}
+provider "openstack" {
+  # Suppress loadbalancer warnings for this project
+}
+
+# ...existing code...
 
 # Read SSH public key
 data "local_file" "ssh_public_key" {
@@ -89,4 +94,33 @@ resource "openstack_compute_instance_v2" "k8s_workers" {
   depends_on = [openstack_compute_instance_v2.k8s_master]
 }
 
-# ...existing outputs...
+# Outputs
+output "master_ip" {
+  description = "IP address of the K8s master node"
+  value       = openstack_compute_instance_v2.k8s_master.access_ip_v4
+}
+
+output "worker_ips" {
+  description = "IP addresses of the K8s worker nodes"
+  value       = openstack_compute_instance_v2.k8s_workers[*].access_ip_v4
+}
+
+output "app_url" {
+  description = "URL to access the Caloguessr application"
+  value       = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}:30001"
+}
+
+output "ssh_master" {
+  description = "SSH command to connect to master"
+  value       = "ssh -i ~/.ssh/${var.key_pair} ubuntu@${openstack_compute_instance_v2.k8s_master.access_ip_v4}"
+}
+
+output "cluster_info" {
+  description = "Cluster information"
+  value = {
+    master_ip   = openstack_compute_instance_v2.k8s_master.access_ip_v4
+    worker_ips  = openstack_compute_instance_v2.k8s_workers[*].access_ip_v4
+    app_url     = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}:30001"
+    ssh_key     = var.key_pair
+  }
+}

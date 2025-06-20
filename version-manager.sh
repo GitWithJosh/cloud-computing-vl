@@ -58,9 +58,9 @@ deploy_version() {
         exit 1
     }
     
-    # Deploy
-    terraform init
-    terraform apply -auto-approve
+    # Deploy with suppressed warnings
+    terraform init -upgrade
+    TF_LOG=ERROR terraform apply -auto-approve
     
     # Get SSH key
     local ssh_key=$(get_ssh_key)
@@ -77,39 +77,52 @@ deploy_version() {
     echo "SSH: $(terraform output -raw ssh_master)"
     echo ""
     echo "⏳ Waiting for cluster to be ready..."
-    sleep 120  # Mehr Zeit für die App-Erstellung
     
-    # Check cluster and deploy app if needed
+    # Längeres Warten für ML-Dependencies
+    echo "📦 Installing ML dependencies (this takes 5-10 minutes)..."
+    sleep 180  # 3 Minuten warten für initiale Installation
+    
+    # Check cluster status
     local master_ip=$(terraform output -raw master_ip)
     echo "📊 Cluster status:"
     
-    # Mit dynamischem SSH-Key
+    # Check with proper timing
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@$master_ip "
         echo '=== Nodes ==='
         kubectl get nodes
         echo
-        echo '=== Pods ==='
-        kubectl get pods -A
+        echo '=== System Pods ==='
+        kubectl get pods -n kube-system
         echo
-        echo '=== Checking if app is deployed ==='
-        if ! kubectl get deployment caloguessr-deployment 2>/dev/null; then
-            echo 'App not found, deploying now...'
-            cd /root/app
-            if [ -f k8s-deployment.yaml ]; then
-                kubectl apply -f k8s-deployment.yaml
-                echo 'Waiting for app to start...'
-                sleep 30
-                kubectl get pods
+        echo '=== App Status ==='
+        kubectl get deployment caloguessr-deployment 2>/dev/null || echo 'App still deploying...'
+        kubectl get pods -l app=caloguessr 2>/dev/null || echo 'App pods starting...'
+        kubectl get svc caloguessr-service 2>/dev/null || echo 'Service starting...'
+        kubectl get hpa caloguessr-hpa 2>/dev/null || echo 'HPA starting...'
+        echo
+        echo '=== Deployment Progress ==='
+        # Check if Docker build is still running
+        if pgrep -f 'docker build' > /dev/null; then
+            echo '🔄 Docker build still in progress...'
+        elif docker images | grep -q caloguessr-app; then
+            echo '✅ Docker image ready'
+            # Check pod status
+            if kubectl get pods -l app=caloguessr --no-headers 2>/dev/null | grep -q Running; then
+                echo '✅ App pods running'
+            elif kubectl get pods -l app=caloguessr --no-headers 2>/dev/null | grep -q Pending; then
+                echo '⏳ App pods pending...'
             else
-                echo 'Deployment file not found!'
+                echo '🔄 App pods starting...'
             fi
+        else
+            echo '🔄 Building application image...'
         fi
-    " 2>/dev/null || echo "Cluster still starting..."
+    " 2>/dev/null || echo "Cluster still initializing..."
     
-    # Final status check
+    # Final status check after more time
     echo ""
-    echo "🔍 Final status check..."
-    sleep 30
+    echo "⏳ Final check in 10 minutes..."
+    sleep 600
     check_app_status $master_ip $ssh_key
 }
 
@@ -117,25 +130,28 @@ check_app_status() {
     local master_ip=$1
     local ssh_key=$2
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        echo '=== Final App Status ==='
-        kubectl get pods -l app=caloguessr
+        echo '=== Final Cluster Status ==='
+        kubectl get nodes
         echo
-        echo '=== Services ==='
-        kubectl get svc caloguessr-service
+        echo '=== All Pods ==='
+        kubectl get pods -A -o wide
         echo
-        echo '=== Testing app connectivity ==='
-        if kubectl get pods -l app=caloguessr --no-headers | grep -q Running; then
+        echo '=== App Status ==='
+        kubectl get deployment,pods,svc,hpa -l app=caloguessr 2>/dev/null || echo 'App components not found'
+        echo
+        echo '=== App Connectivity Test ==='
+        if kubectl get pods -l app=caloguessr --no-headers 2>/dev/null | grep -q Running; then
             echo '✅ App pods are running'
             echo 'Testing app URL...'
             if curl -s -o /dev/null -w '%{http_code}' http://localhost:30001 | grep -q '200\|302'; then
-                echo '✅ App is responding'
+                echo '✅ App is responding at http://$master_ip:30001'
             else
-                echo '⚠️  App not responding yet, may still be starting'
+                echo '⏳ App starting, try again in a few minutes'
+                echo '   URL: http://$master_ip:30001'
             fi
         else
-            echo '❌ App pods not running'
-            echo 'Checking pod logs:'
-            kubectl logs -l app=caloguessr --tail=10 || echo 'No logs available'
+            echo '⏳ App still deploying - check again in a few minutes'
+            kubectl describe pods -l app=caloguessr 2>/dev/null || echo 'No app pods yet'
         fi
     " 2>/dev/null
 }

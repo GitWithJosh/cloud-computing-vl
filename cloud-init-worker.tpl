@@ -34,14 +34,13 @@ write_files:
         sleep 10
       done
       
-      # Additional wait for master to be fully ready
+      # Wait for token sharing service
       for i in {1..30}; do
-        if curl -s --connect-timeout 5 http://$MASTER_IP/ready 2>/dev/null || [ -f /tmp/master-ready-confirmed ]; then
-          echo "Master signals ready"
-          touch /tmp/master-ready-confirmed
+        if curl -s --connect-timeout 5 http://$MASTER_IP:8080/ready 2>/dev/null | grep -q "K3s Master Ready"; then
+          echo "Master token service ready"
           break
         fi
-        echo "Attempt $i/30 - Waiting for master ready signal..."
+        echo "Attempt $i/30 - Waiting for master token service..."
         sleep 20
       done
     permissions: '0755'
@@ -51,24 +50,23 @@ write_files:
       MASTER_IP="${master_ip}"
       echo "Getting join token from master..."
       
-      # Try multiple methods to get the token
+      # Try to get token via HTTP service
       for i in {1..20}; do
-        # Method 1: Direct SSH to ubuntu user, then sudo
+        TOKEN=$(curl -s --connect-timeout 10 http://$MASTER_IP:8080/token 2>/dev/null)
+        
+        if [ -n "$TOKEN" ] && [ "$TOKEN" != "" ] && [[ ! "$TOKEN" =~ "404" ]] && [[ ! "$TOKEN" =~ "error" ]]; then
+          echo "Got token via HTTP service: $${TOKEN:0:20}..."
+          echo "$TOKEN" > /tmp/k3s-token
+          exit 0
+        fi
+        
+        # Fallback: Try SSH to ubuntu user
         TOKEN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o UserKnownHostsFile=/dev/null ubuntu@$MASTER_IP "sudo cat /var/lib/rancher/k3s/server/node-token" 2>/dev/null)
         
         if [ -n "$TOKEN" ] && [ "$TOKEN" != "" ]; then
-          echo "Got token via ubuntu user: $${TOKEN:0:20}..."
+          echo "Got token via SSH to ubuntu user: $${TOKEN:0:20}..."
           echo "$TOKEN" > /tmp/k3s-token
-          return 0
-        fi
-        
-        # Method 2: Try direct root access (if SSH keys are set up)
-        TOKEN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o UserKnownHostsFile=/dev/null root@$MASTER_IP "cat /var/lib/rancher/k3s/server/node-token" 2>/dev/null)
-        
-        if [ -n "$TOKEN" ] && [ "$TOKEN" != "" ]; then
-          echo "Got token via root user: $${TOKEN:0:20}..."
-          echo "$TOKEN" > /tmp/k3s-token
-          return 0
+          exit 0
         fi
         
         echo "Attempt $i/20 - Failed to get token, retrying in 15s..."
@@ -76,7 +74,7 @@ write_files:
       done
       
       echo "Failed to get token after all attempts"
-      return 1
+      exit 1
     permissions: '0755'
   - path: /root/join-cluster.sh
     content: |
@@ -85,13 +83,13 @@ write_files:
       
       if [ ! -f /tmp/k3s-token ]; then
         echo "No token file found"
-        return 1
+        exit 1
       fi
       
       TOKEN=$(cat /tmp/k3s-token)
       if [ -z "$TOKEN" ]; then
         echo "Empty token"
-        return 1
+        exit 1
       fi
       
       echo "Joining cluster with token: $${TOKEN:0:20}..."
@@ -109,40 +107,8 @@ write_files:
         sleep 10
       done
       
-      return 0
-    permissions: '0755'
-  - path: /root/get-app-image.sh
-    content: |
-      #!/bin/bash
-      echo "Getting application image from master..."
-      MASTER_IP="${master_ip}"
-      
-      # Wait for master to have the image and be accessible
-      for i in {1..20}; do
-        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o UserKnownHostsFile=/dev/null ubuntu@$MASTER_IP "sudo docker images | grep -q caloguessr-app" 2>/dev/null; then
-          echo "Master has the image, copying..."
-          
-          # Copy image from master
-          if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@$MASTER_IP "sudo docker save caloguessr-app:latest" | sudo docker load; then
-            echo "Image copied successfully"
-            
-            # Import to K3s if K3s is running
-            if command -v /usr/local/bin/k3s >/dev/null 2>&1; then
-              sudo docker save caloguessr-app:latest | sudo /usr/local/bin/k3s ctr images import - || echo "K3s import failed"
-            fi
-            
-            echo "Application image ready on worker"
-            return 0
-          else
-            echo "Failed to copy image, retrying..."
-          fi
-        fi
-        echo "Attempt $i/20 - waiting for master image ($(date))..."
-        sleep 30
-      done
-      
-      echo "Failed to get app image"
-      return 1
+      echo "Worker joined cluster successfully"
+      exit 0
     permissions: '0755'
 
 runcmd:
@@ -160,10 +126,7 @@ runcmd:
   # Join cluster
   - /root/join-cluster.sh
   
-  # Get application image (in background)
-  - nohup /root/get-app-image.sh > /tmp/image-copy.log 2>&1 &
-  
   # Final verification
   - sleep 30
   - systemctl status k3s-agent || echo "K3s agent status check failed"
-  - sudo docker images | grep caloguessr || echo "App image not found yet"
+  - echo "Worker setup completed"
