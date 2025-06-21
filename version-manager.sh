@@ -121,8 +121,8 @@ deploy_version() {
     
     # Final status check after more time
     echo ""
-    echo "⏳ Final check in 10 minutes..."
-    sleep 600
+    echo "⏳ Final check in 12 minutes..."
+    sleep 720
     check_app_status $master_ip $ssh_key
 }
 
