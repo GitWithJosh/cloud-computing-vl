@@ -2,7 +2,6 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 import io
-import os
 
 # Streamlit App-Titel
 st.title("Kalorien-Schätzer mit Google Gemini")
