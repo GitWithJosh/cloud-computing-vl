@@ -50,7 +50,7 @@ write_files:
       MASTER_IP="${master_ip}"
       echo "Getting join token from master..."
       
-      # Try to get token via HTTP service
+      # Try to get token via HTTP service first (primary method)
       for i in {1..20}; do
         TOKEN=$(curl -s --connect-timeout 10 http://$MASTER_IP:8080/token 2>/dev/null)
         
@@ -60,16 +60,17 @@ write_files:
           exit 0
         fi
         
-        # Fallback: Try SSH to ubuntu user
-        TOKEN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o UserKnownHostsFile=/dev/null ubuntu@$MASTER_IP "sudo cat /var/lib/rancher/k3s/server/node-token" 2>/dev/null)
+        echo "HTTP attempt $i/20 failed, trying SSH fallback..."
+        # Only try SSH as fallback when HTTP fails
+        TOKEN=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o UserKnownHostsFile=/dev/null ubuntu@$MASTER_IP "sudo cat /var/lib/rancher/k3s/server/node-token" 2>/dev/null)
         
         if [ -n "$TOKEN" ] && [ "$TOKEN" != "" ]; then
-          echo "Got token via SSH to ubuntu user: $${TOKEN:0:20}..."
+          echo "Got token via SSH: $${TOKEN:0:20}..."
           echo "$TOKEN" > /tmp/k3s-token
           exit 0
         fi
         
-        echo "Attempt $i/20 - Failed to get token, retrying in 15s..."
+        echo "Both HTTP and SSH failed for attempt $i/20, retrying in 15s..."
         sleep 15
       done
       
