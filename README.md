@@ -33,10 +33,10 @@ Das Projekt erfüllt alle Anforderungen der Portfolio-Prüfung "Cloud Computing 
 │  │ - App Pods  │    │ - App Pods  │ │ - App Pods  │ │
 │  └─────────────┘    └─────────────┘ └─────────────┘ │
 │         │                                           │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │        NodePort Service (30001)                 │ │
-│  │     LoadBalancer + Horizontal Pod Autoscaler    │ │
-│  └─────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────┐│
+│  │        NodePort Service (30001)                 ││
+│  │     LoadBalancer + Horizontal Pod Autoscaler    ││
+│  └─────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────┘
                          │
                ┌─────────────────────┐
