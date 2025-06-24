@@ -56,6 +56,27 @@ resource "openstack_networking_secgroup_rule_v2" "cluster_internal" {
   security_group_id = openstack_networking_secgroup_v2.k8s_cluster.id
 }
 
+# Security Groups für Monitoring
+resource "openstack_networking_secgroup_rule_v2" "grafana" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30300
+  port_range_max    = 30300
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.k8s_cluster.id
+}
+
+resource "openstack_networking_secgroup_rule_v2" "prometheus" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 30090
+  port_range_max    = 30090
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.k8s_cluster.id
+}
+
 # K8s Master Node
 resource "openstack_compute_instance_v2" "k8s_master" {
   name            = "k8s-master"
@@ -121,5 +142,13 @@ output "cluster_info" {
     worker_ips  = openstack_compute_instance_v2.k8s_workers[*].access_ip_v4
     app_url     = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}:30001"
     ssh_key     = var.key_pair
+  }
+}
+
+output "monitoring_urls" {
+  description = "Monitoring service URLs"
+  value = {
+    grafana    = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}:30300"
+    prometheus = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}:30090"
   }
 }

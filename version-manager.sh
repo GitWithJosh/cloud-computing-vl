@@ -200,6 +200,10 @@ show_status() {
             echo "App URL: $(terraform output -raw app_url)"
             echo "SSH Key: $ssh_key"
             echo ""
+            echo "🔍 Monitoring URLs:"
+            echo "Grafana: http://$master_ip:30300 (admin/admin)"
+            echo "Prometheus: http://$master_ip:30090"
+            echo ""
             
             if [ -n "$ssh_key" ] && ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no -o ConnectTimeout=5 ubuntu@$master_ip "echo" 2>/dev/null; then
                 echo "📊 Kubernetes Status:"
@@ -208,19 +212,16 @@ show_status() {
                     kubectl get nodes
                     echo
                     echo '=== Pods ==='
-                    kubectl get pods -o wide
+                    kubectl get pods -A -o wide
                     echo
                     echo '=== Services ==='
-                    kubectl get svc
+                    kubectl get svc -A
                     echo
-                    echo '=== App-specific Status ==='
-                    echo 'Caloguessr Deployment:'
-                    kubectl get deployment caloguessr-deployment 2>/dev/null || echo 'Not found'
-                    echo 'Caloguessr Pods:'
-                    kubectl get pods -l app=caloguessr 2>/dev/null || echo 'Not found'
+                    echo '=== HPA Status ==='
+                    kubectl get hpa -A
                     echo
-                    echo '=== HPA ==='
-                    kubectl get hpa 2>/dev/null || echo 'HPA not available'
+                    echo '=== Monitoring Stack ==='
+                    kubectl get pods -n monitoring
                 " 2>/dev/null
             else
                 echo "❌ Cannot connect to cluster (SSH Key: $ssh_key)"
@@ -230,6 +231,26 @@ show_status() {
         fi
     else
         echo "❌ No terraform state found"
+    fi
+}
+
+monitoring_dashboard() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "🔍 Opening Monitoring Dashboard..."
+    echo "Grafana: http://$master_ip:30300"
+    echo "Prometheus: http://$master_ip:30090"
+    echo ""
+    echo "Default Grafana login: admin/admin"
+    
+    # Versuche Browser zu öffnen (auf macOS)
+    if command -v open >/dev/null 2>&1; then
+        open "http://$master_ip:30300"
     fi
 }
 
@@ -369,6 +390,9 @@ case $1 in
         ;;
     "debug")
         debug_cluster
+        ;;
+    "monitoring"|"dashboard")
+        monitoring_dashboard
         ;;
     "cleanup")
         cleanup
