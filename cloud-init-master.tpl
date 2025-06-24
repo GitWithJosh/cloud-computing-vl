@@ -21,159 +21,6 @@ write_files:
   - path: /root/app/k8s-deployment.yaml
     content: ${k8s_deployment}
     encoding: b64
-  - path: /root/monitoring/prometheus-config.yaml
-    content: |
-      global:
-        scrape_interval: 15s
-        evaluation_interval: 15s
-      
-      scrape_configs:
-        - job_name: 'kubernetes-apiservers'
-          kubernetes_sd_configs:
-          - role: endpoints
-          scheme: https
-          tls_config:
-            ca_file: /var/lib/rancher/k3s/server/tls/server-ca.crt
-            cert_file: /var/lib/rancher/k3s/server/tls/client-admin.crt
-            key_file: /var/lib/rancher/k3s/server/tls/client-admin.key
-          bearer_token_file: /var/lib/rancher/k3s/server/token
-          relabel_configs:
-          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
-            action: keep
-            regex: default;kubernetes;https
-        
-        - job_name: 'kubernetes-nodes'
-          kubernetes_sd_configs:
-          - role: node
-          scheme: https
-          tls_config:
-            ca_file: /var/lib/rancher/k3s/server/tls/server-ca.crt
-            insecure_skip_verify: true
-          bearer_token_file: /var/lib/rancher/k3s/server/token
-          relabel_configs:
-          - action: labelmap
-            regex: __meta_kubernetes_node_label_(.+)
-          - target_label: __address__
-            replacement: kubernetes.default.svc:443
-          - source_labels: [__meta_kubernetes_node_name]
-            regex: (.+)
-            target_label: __metrics_path__
-            replacement: /api/v1/nodes/$1/proxy/metrics
-        
-        - job_name: 'kubernetes-pods'
-          kubernetes_sd_configs:
-          - role: pod
-          relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
-            action: keep
-            regex: true
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-            action: replace
-            target_label: __metrics_path__
-            regex: (.+)
-          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
-            action: replace
-            regex: ([^:]+)(?::\d+)?;(\d+)
-            replacement: $1:$2
-            target_label: __address__
-          - action: labelmap
-            regex: __meta_kubernetes_pod_label_(.+)
-          - source_labels: [__meta_kubernetes_namespace]
-            action: replace
-            target_label: kubernetes_namespace
-          - source_labels: [__meta_kubernetes_pod_name]
-            action: replace
-            target_label: kubernetes_pod_name
-    permissions: '0644'
-  - path: /root/monitoring/grafana-dashboard.json
-    content: |
-      {
-        "dashboard": {
-          "id": null,
-          "title": "Caloguessr App Monitoring",
-          "tags": ["kubernetes", "caloguessr"],
-          "timezone": "browser",
-          "panels": [
-            {
-              "id": 1,
-              "title": "Pod Status",
-              "type": "stat",
-              "targets": [
-                {
-                  "expr": "kube_pod_status_phase{namespace=\"default\", pod=~\"caloguessr.*\"}",
-                  "legendFormat": "{{pod}} - {{phase}}"
-                }
-              ],
-              "fieldConfig": {
-                "defaults": {
-                  "color": {
-                    "mode": "palette-classic"
-                  }
-                }
-              },
-              "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
-            },
-            {
-              "id": 2,
-              "title": "CPU Usage",
-              "type": "timeseries",
-              "targets": [
-                {
-                  "expr": "rate(container_cpu_usage_seconds_total{pod=~\"caloguessr.*\"}[5m])",
-                  "legendFormat": "{{pod}}"
-                }
-              ],
-              "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
-            },
-            {
-              "id": 3,
-              "title": "Memory Usage",
-              "type": "timeseries",
-              "targets": [
-                {
-                  "expr": "container_memory_usage_bytes{pod=~\"caloguessr.*\"}",
-                  "legendFormat": "{{pod}}"
-                }
-              ],
-              "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
-            },
-            {
-              "id": 4,
-              "title": "HTTP Requests",
-              "type": "timeseries",
-              "targets": [
-                {
-                  "expr": "rate(http_requests_total{job=\"caloguessr\"}[5m])",
-                  "legendFormat": "{{method}} {{status}}"
-                }
-              ],
-              "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
-            },
-            {
-              "id": 5,
-              "title": "HPA Status",
-              "type": "stat",
-              "targets": [
-                {
-                  "expr": "kube_horizontalpodautoscaler_status_current_replicas{horizontalpodautoscaler=\"caloguessr-hpa\"}",
-                  "legendFormat": "Current Replicas"
-                },
-                {
-                  "expr": "kube_horizontalpodautoscaler_status_desired_replicas{horizontalpodautoscaler=\"caloguessr-hpa\"}",
-                  "legendFormat": "Desired Replicas"
-                }
-              ],
-              "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
-            }
-          ],
-          "time": {
-            "from": "now-1h",
-            "to": "now"
-          },
-          "refresh": "5s"
-        }
-      }
-    permissions: '0644'
   - path: /root/monitoring/setup-monitoring.sh
     content: |
       #!/bin/bash
@@ -189,46 +36,63 @@ write_files:
       # Create monitoring namespace
       kubectl create namespace monitoring || true
       
-      # Deploy Prometheus
+      # Create RBAC for Prometheus
       kubectl apply -f - <<EOF
-      apiVersion: apps/v1
-      kind: Deployment
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: prometheus
+      rules:
+      - apiGroups: [""]
+        resources:
+        - nodes
+        - nodes/proxy
+        - nodes/metrics
+        - services
+        - endpoints
+        - pods
+        - ingresses
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["extensions"]
+        resources:
+        - ingresses
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources:
+        - deployments
+        - replicasets
+        - daemonsets
+        - statefulsets
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["autoscaling"]
+        resources:
+        - horizontalpodautoscalers
+        verbs: ["get", "list", "watch"]
+      - nonResourceURLs: ["/metrics"]
+        verbs: ["get"]
+      ---
+      apiVersion: v1
+      kind: ServiceAccount
       metadata:
         name: prometheus
         namespace: monitoring
-      spec:
-        replicas: 1
-        selector:
-          matchLabels:
-            app: prometheus
-        template:
-          metadata:
-            labels:
-              app: prometheus
-          spec:
-            containers:
-            - name: prometheus
-              image: prom/prometheus:latest
-              ports:
-              - containerPort: 9090
-              volumeMounts:
-              - name: config
-                mountPath: /etc/prometheus
-              - name: storage
-                mountPath: /prometheus
-              args:
-                - '--config.file=/etc/prometheus/prometheus.yml'
-                - '--storage.tsdb.path=/prometheus'
-                - '--web.console.libraries=/etc/prometheus/console_libraries'
-                - '--web.console.templates=/etc/prometheus/consoles'
-                - '--web.enable-lifecycle'
-            volumes:
-            - name: config
-              configMap:
-                name: prometheus-config
-            - name: storage
-              emptyDir: {}
       ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: prometheus
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: prometheus
+      subjects:
+      - kind: ServiceAccount
+        name: prometheus
+        namespace: monitoring
+      EOF
+      
+      # Deploy Prometheus with fixed configuration
+      kubectl apply -f - <<EOF
       apiVersion: v1
       kind: ConfigMap
       metadata:
@@ -238,10 +102,14 @@ write_files:
         prometheus.yml: |
           global:
             scrape_interval: 15s
+            evaluation_interval: 15s
           scrape_configs:
           - job_name: 'kubernetes-apiservers'
             kubernetes_sd_configs:
             - role: endpoints
+              namespaces:
+                names:
+                - default
             scheme: https
             tls_config:
               ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
@@ -250,6 +118,7 @@ write_files:
             - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
               action: keep
               regex: default;kubernetes;https
+          
           - job_name: 'kubernetes-nodes'
             kubernetes_sd_configs:
             - role: node
@@ -261,6 +130,35 @@ write_files:
             relabel_configs:
             - action: labelmap
               regex: __meta_kubernetes_node_label_(.+)
+            - target_label: __address__
+              replacement: kubernetes.default.svc:443
+            - source_labels: [__meta_kubernetes_node_name]
+              regex: (.+)
+              target_label: __metrics_path__
+              replacement: /api/v1/nodes/\$1/proxy/metrics
+          
+          - job_name: 'kubernetes-cadvisor'
+            kubernetes_sd_configs:
+            - role: node
+            scheme: https
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+            - target_label: __address__
+              replacement: kubernetes.default.svc:443
+            - source_labels: [__meta_kubernetes_node_name]
+              regex: (.+)
+              target_label: __metrics_path__
+              replacement: /api/v1/nodes/\$1/proxy/metrics/cadvisor
+          
+          - job_name: 'kube-state-metrics'
+            static_configs:
+            - targets: ['kube-state-metrics:8080']
+          
           - job_name: 'kubernetes-pods'
             kubernetes_sd_configs:
             - role: pod
@@ -286,6 +184,46 @@ write_files:
               action: replace
               target_label: kubernetes_pod_name
       ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: prometheus
+        namespace: monitoring
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: prometheus
+        template:
+          metadata:
+            labels:
+              app: prometheus
+          spec:
+            serviceAccountName: prometheus
+            containers:
+            - name: prometheus
+              image: prom/prometheus:latest
+              ports:
+              - containerPort: 9090
+              volumeMounts:
+              - name: config
+                mountPath: /etc/prometheus
+              - name: storage
+                mountPath: /prometheus
+              args:
+                - '--config.file=/etc/prometheus/prometheus.yml'
+                - '--storage.tsdb.path=/prometheus'
+                - '--web.console.libraries=/etc/prometheus/console_libraries'
+                - '--web.console.templates=/etc/prometheus/consoles'
+                - '--web.enable-lifecycle'
+                - '--web.enable-admin-api'
+            volumes:
+            - name: config
+              configMap:
+                name: prometheus-config
+            - name: storage
+              emptyDir: {}
+      ---
       apiVersion: v1
       kind: Service
       metadata:
@@ -299,6 +237,125 @@ write_files:
           targetPort: 9090
           nodePort: 30090
         type: NodePort
+      EOF
+      
+      # Deploy kube-state-metrics FIRST (wichtig für Metriken)
+      kubectl apply -f - <<EOF
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: kube-state-metrics
+        namespace: monitoring
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: kube-state-metrics
+      rules:
+      - apiGroups: [""]
+        resources: ["configmaps", "secrets", "nodes", "pods", "services", "resourcequotas", "replicationcontrollers", "limitranges", "persistentvolumeclaims", "persistentvolumes", "namespaces", "endpoints"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["statefulsets", "daemonsets", "deployments", "replicasets"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["batch"]
+        resources: ["cronjobs", "jobs"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["autoscaling"]
+        resources: ["horizontalpodautoscalers"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["authentication.k8s.io"]
+        resources: ["tokenreviews"]
+        verbs: ["create"]
+      - apiGroups: ["authorization.k8s.io"]
+        resources: ["subjectaccessreviews"]
+        verbs: ["create"]
+      - apiGroups: ["policy"]
+        resources: ["poddisruptionbudgets"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["certificates.k8s.io"]
+        resources: ["certificatesigningrequests"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["storage.k8s.io"]
+        resources: ["storageclasses", "volumeattachments"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["admissionregistration.k8s.io"]
+        resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["networking.k8s.io"]
+        resources: ["networkpolicies", "ingresses"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["coordination.k8s.io"]
+        resources: ["leases"]
+        verbs: ["list", "watch"]
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: kube-state-metrics
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: kube-state-metrics
+      subjects:
+      - kind: ServiceAccount
+        name: kube-state-metrics
+        namespace: monitoring
+      ---
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: kube-state-metrics
+        namespace: monitoring
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: kube-state-metrics
+        template:
+          metadata:
+            labels:
+              app: kube-state-metrics
+          spec:
+            serviceAccountName: kube-state-metrics
+            containers:
+            - name: kube-state-metrics
+              image: k8s.gcr.io/kube-state-metrics/kube-state-metrics:v2.8.0
+              ports:
+              - containerPort: 8080
+                name: http-metrics
+              - containerPort: 8081
+                name: telemetry
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 8080
+                initialDelaySeconds: 5
+                timeoutSeconds: 5
+              readinessProbe:
+                httpGet:
+                  path: /
+                  port: 8081
+                initialDelaySeconds: 5
+                timeoutSeconds: 5
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: kube-state-metrics
+        namespace: monitoring
+        labels:
+          app: kube-state-metrics
+      spec:
+        selector:
+          app: kube-state-metrics
+        ports:
+        - name: http-metrics
+          port: 8080
+          targetPort: http-metrics
+        - name: telemetry
+          port: 8081
+          targetPort: telemetry
       EOF
       
       # Deploy Grafana
@@ -326,8 +383,8 @@ write_files:
               env:
               - name: GF_SECURITY_ADMIN_PASSWORD
                 value: "admin"
-              - name: GF_INSTALL_PLUGINS
-                value: "grafana-kubernetes-app"
+              - name: GF_SECURITY_ADMIN_USER
+                value: "admin"
               volumeMounts:
               - name: grafana-storage
                 mountPath: /var/lib/grafana
@@ -350,58 +407,14 @@ write_files:
         type: NodePort
       EOF
       
-      # Deploy kube-state-metrics for better Kubernetes metrics
-      kubectl apply -f - <<EOF
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: kube-state-metrics
-        namespace: monitoring
-      spec:
-        replicas: 1
-        selector:
-          matchLabels:
-            app: kube-state-metrics
-        template:
-          metadata:
-            labels:
-              app: kube-state-metrics
-            annotations:
-              prometheus.io/scrape: "true"
-              prometheus.io/port: "8080"
-          spec:
-            containers:
-            - name: kube-state-metrics
-              image: k8s.gcr.io/kube-state-metrics/kube-state-metrics:v2.6.0
-              ports:
-              - containerPort: 8080
-              - containerPort: 8081
-      ---
-      apiVersion: v1
-      kind: Service
-      metadata:
-        name: kube-state-metrics
-        namespace: monitoring
-        annotations:
-          prometheus.io/scrape: "true"
-          prometheus.io/port: "8080"
-      spec:
-        selector:
-          app: kube-state-metrics
-        ports:
-        - name: http-metrics
-          port: 8080
-          targetPort: 8080
-        - name: telemetry
-          port: 8081
-          targetPort: 8081
-      EOF
-      
-      # Wait for Grafana to be ready
-      echo "Waiting for Grafana to be ready..." >> /var/log/monitoring-setup.log
-      sleep 60
+      # Wait for all pods to be ready
+      echo "Waiting for monitoring pods to be ready..." >> /var/log/monitoring-setup.log
+      kubectl wait --for=condition=ready pod -l app=kube-state-metrics -n monitoring --timeout=300s
+      kubectl wait --for=condition=ready pod -l app=prometheus -n monitoring --timeout=300s
+      kubectl wait --for=condition=ready pod -l app=grafana -n monitoring --timeout=300s
       
       # Configure Grafana data source
+      sleep 30
       kubectl exec -n monitoring deployment/grafana -- /bin/bash -c "
         curl -X POST http://admin:admin@localhost:3000/api/datasources \
         -H 'Content-Type: application/json' \
@@ -412,7 +425,7 @@ write_files:
           \"access\": \"proxy\",
           \"isDefault\": true
         }'
-      " 2>/dev/null || echo "Data source may already exist"
+      " 2>/dev/null || echo "Data source configuration completed"
       
       echo "Monitoring stack setup completed" >> /var/log/monitoring-setup.log
     permissions: '0755'

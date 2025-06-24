@@ -365,6 +365,39 @@ cleanup() {
     fi
 }
 
+import_dashboard() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "📊 Importing Grafana Dashboard..."
+    
+    # Warten bis Grafana bereit ist
+    echo "⏳ Waiting for Grafana to be ready..."
+    sleep 30
+    
+    # Dashboard importieren
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        # Dashboard JSON zur Grafana API senden
+        kubectl exec -n monitoring deployment/grafana -- /bin/bash -c '
+            sleep 10
+            curl -X POST http://admin:admin@localhost:3000/api/dashboards/db \
+            -H \"Content-Type: application/json\" \
+            -d @- << EOF
+$(cat grafana-dashboard-caloguessr.json)
+EOF
+        '
+    " 2>/dev/null
+    
+    echo "✅ Dashboard imported successfully!"
+    echo "🔍 Access at: http://$master_ip:30300"
+    echo "📊 Look for 'Caloguessr Scaling Demo Dashboard'"
+}
+
 # Command handling
 case $1 in
     "deploy")
@@ -393,6 +426,9 @@ case $1 in
         ;;
     "monitoring"|"dashboard")
         monitoring_dashboard
+        ;;
+    "import-dashboard")
+        import_dashboard
         ;;
     "cleanup")
         cleanup
