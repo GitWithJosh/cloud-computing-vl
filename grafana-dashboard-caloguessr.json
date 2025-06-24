@@ -72,7 +72,7 @@
       {
         "id": 2,
         "title": "Pod Status Overview", 
-        "type": "piechart",
+        "type": "stat",
         "targets": [
           {
             "expr": "sum by (phase) (kube_pod_status_phase{namespace=\"default\", pod=~\"caloguessr.*\"})",
@@ -92,7 +92,28 @@
                 "vis": false
               }
             },
-            "mappings": []
+            "mappings": [
+              {
+                "type": "value",
+                "value": "Running",
+                "text": "Running"
+              },
+              {
+                "type": "value", 
+                "value": "Pending",
+                "text": "Pending"
+              },
+              {
+                "type": "value",
+                "value": "Failed",
+                "text": "Failed"
+              },
+              {
+                "type": "value",
+                "value": "Succeeded",
+                "text": "Succeeded"
+              }
+            ]
           }
         },
         "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
@@ -108,8 +129,10 @@
           },
           "legend": {
             "displayMode": "visible",
-            "placement": "bottom"
-          }
+            "placement": "bottom",
+            "values": ["value"]
+          },
+          "displayLabels": ["name", "value"]
         }
       },
       {
@@ -420,107 +443,6 @@
           "tooltip": {
             "mode": "single"
           }
-        }
-      },
-      {
-        "id": 7,
-        "title": "Pod Resource Usage Summary",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "sum(kube_pod_container_resource_requests{namespace=\"default\", pod=~\"caloguessr.*\", resource=\"cpu\"})",
-            "legendFormat": "CPU Requests",
-            "refId": "A"
-          },
-          {
-            "expr": "sum(kube_pod_container_resource_requests{namespace=\"default\", pod=~\"caloguessr.*\", resource=\"memory\"})",
-            "legendFormat": "Memory Requests",
-            "refId": "B"
-          },
-          {
-            "expr": "count(kube_pod_info{namespace=\"default\", pod=~\"caloguessr.*\"})",
-            "legendFormat": "Running Pods",
-            "refId": "C"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "color": {
-              "mode": "thresholds"
-            },
-            "custom": {
-              "displayMode": "lcd",
-              "orientation": "horizontal"
-            },
-            "mappings": [],
-            "thresholds": {
-              "steps": [
-                {
-                  "color": "green",
-                  "value": null
-                },
-                {
-                  "color": "yellow",
-                  "value": 5
-                },
-                {
-                  "color": "red",
-                  "value": 8
-                }
-              ]
-            }
-          },
-          "overrides": [
-            {
-              "matcher": {
-                "id": "byName",
-                "options": "CPU Requests"
-              },
-              "properties": [
-                {
-                  "id": "unit",
-                  "value": "short"
-                }
-              ]
-            },
-            {
-              "matcher": {
-                "id": "byName", 
-                "options": "Memory Requests"
-              },
-              "properties": [
-                {
-                  "id": "unit",
-                  "value": "bytes"
-                }
-              ]
-            },
-            {
-              "matcher": {
-                "id": "byName",
-                "options": "Running Pods"
-              },
-              "properties": [
-                {
-                  "id": "unit",
-                  "value": "short"
-                }
-              ]
-            }
-          ]
-        },
-        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 35},
-        "options": {
-          "reduceOptions": {
-            "values": false,
-            "calcs": ["lastNotNull"],
-            "fields": ""
-          },
-          "orientation": "auto",
-          "textMode": "auto",
-          "colorMode": "background",
-          "graphMode": "area",
-          "justifyMode": "center"
         }
       }
     ],
