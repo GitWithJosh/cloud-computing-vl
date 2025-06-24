@@ -209,10 +209,6 @@ runcmd:
   # Join cluster (uses existing token or downloads if needed)
   - /root/join-cluster.sh
   
-  # Assign worker role after joining
-  - sleep 30
-  - ssh -o StrictHostKeyChecking=no ubuntu@${master_ip} "kubectl label node $(hostname) node-role.kubernetes.io/worker= --overwrite" || echo "Role assignment failed"
-
   # Final verification
   - sleep 30
   - systemctl status k3s-agent || echo "K3s agent status check failed"

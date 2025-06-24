@@ -485,6 +485,41 @@ write_files:
       # Log the sharing service
       echo "Token and image sharing service started on port 8080" > /var/log/sharing-service.log
     permissions: '0755'
+  - path: /root/auto-assign-worker-roles.sh
+    content: |
+      #!/bin/bash
+      # Auto-assign worker roles for new nodes
+      
+      echo "Starting auto role assignment service..." > /var/log/role-assignment.log
+      
+      # Wait for K3s to be ready
+      while ! kubectl get nodes > /dev/null 2>&1; do
+        sleep 10
+      done
+      
+      # Continuous monitoring for new nodes
+      while true; do
+        # Get all nodes that don't have the master role and aren't labeled as workers yet
+        NODES=$(kubectl get nodes --no-headers | grep -v "control-plane\|master" | awk '{print $1}')
+        
+        for NODE in $NODES; do
+          # Check if node already has worker role
+          if ! kubectl get node $NODE -o jsonpath='{.metadata.labels}' | grep -q "node-role.kubernetes.io/worker"; then
+            echo "$(date): Assigning worker role to $NODE" >> /var/log/role-assignment.log
+            kubectl label node $NODE node-role.kubernetes.io/worker= --overwrite
+            
+            if [ $? -eq 0 ]; then
+              echo "$(date): Successfully assigned worker role to $NODE" >> /var/log/role-assignment.log
+            else
+              echo "$(date): Failed to assign worker role to $NODE" >> /var/log/role-assignment.log
+            fi
+          fi
+        done
+        
+        # Check every 15 seconds
+        sleep 15
+      done
+    permissions: '0755'
 
 runcmd:
   # Docker Setup
@@ -510,6 +545,9 @@ runcmd:
   
   # Deploy app in background
   - /root/deploy-app.sh
+  
+  # Start auto role assignment service
+  - nohup /root/auto-assign-worker-roles.sh > /dev/null 2>&1 &
   
   # Signal completion
   - echo "Master setup completed at $(date)" > /tmp/setup-complete.log
