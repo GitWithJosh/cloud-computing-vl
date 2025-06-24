@@ -160,6 +160,112 @@ cat terraform.tfvars.template
 ./version-manager.sh status
 ```
 
+## 📊 Scaling Demo & Monitoring Dashboard
+
+### 🎯 Automatisierte Scaling-Demonstration
+
+Das Projekt enthält eine vollständige Scaling-Demo mit Grafana Dashboard für die Visualisierung der Horizontal Pod Autoscaler (HPA) Funktionalität.
+
+#### Setup des Monitoring Dashboards
+
+```bash
+# 1. Dashboard importieren
+./version-manager.sh import-dashboard
+
+# 2. Monitoring Dashboard öffnen
+./version-manager.sh monitoring
+```
+
+#### Scaling Demo ausführen
+
+```bash
+# Vollständige Scaling Demo mit Dashboard
+./scaling-demo.sh
+```
+
+**Die Demo führt automatisch folgende Schritte aus:**
+
+1. **📊 Monitoring Setup** - Überprüfung des Prometheus/Grafana Stacks
+2. **🎛️ Dashboard Import** - Automatischer Import des Caloguessr Dashboard
+3. **🌐 Browser-Integration** - Öffnet Grafana Dashboard automatisch (macOS)
+4. **⚙️ Metrics Server** - Installation/Überprüfung der Kubernetes Metrics
+5. **⚡ Load Generation** - Konfigurierbare Last-Generierung
+6. **📈 Live Monitoring** - Echzeit-Überwachung der Skalierung
+
+#### Monitoring URLs
+
+Nach dem Deployment sind folgende Monitoring-Services verfügbar:
+
+```bash
+# Grafana Dashboard (admin/admin)
+http://YOUR-MASTER-IP:30300
+
+# Prometheus Metrics
+http://YOUR-MASTER-IP:30090
+
+# Caloguessr App
+http://YOUR-MASTER-IP:30001
+```
+
+#### Dashboard Features
+
+Das **Caloguessr Scaling Demo Dashboard** zeigt:
+
+- 📊 **Pod Count & HPA Status** - Aktuelle vs. gewünschte Replicas
+- 📈 **Pod Status Overview** - Live Status aller Pods (Running/Pending/Failed)
+- 💻 **CPU Usage per Pod** - CPU-Verbrauch mit HPA-Schwellwerten
+- 🧠 **Memory Usage per Pod** - Speicher-Verbrauch pro Pod
+- 🌐 **Network I/O per Pod** - Netzwerk-Traffic während Load Tests
+- 🔄 **HPA Scaling Events** - Visualisierung der Scaling-Ereignisse
+
+#### Load Test Konfiguration
+
+```bash
+# Demo mit benutzerdefinierten Parametern
+./scaling-demo.sh
+
+# Interaktive Konfiguration:
+# - Load Test Dauer (Standard: 600s = 10 Minuten)
+# - Anzahl paralleler Requests (Standard: 100)
+```
+
+#### Typischer Scaling-Ablauf
+
+1. **Baseline** - Start mit 2 Pods (HPA Minimum)
+2. **Load Increase** - CPU-Last steigt über 10% Schwellwert
+3. **Scaling Trigger** - HPA erhöht gewünschte Replicas
+4. **Pod Creation** - Neue Pods werden erstellt
+5. **Load Distribution** - Last verteilt sich auf mehr Pods
+6. **Scale Down** - Nach Load-Ende: Pods werden reduziert
+
+### 🔧 Monitoring-Kommandos
+
+```bash
+# Dashboard importieren/aktualisieren
+./version-manager.sh import-dashboard
+
+# Monitoring Dashboard öffnen
+./version-manager.sh dashboard
+
+# Live-Monitoring starten
+./monitor.sh
+
+# Manuelle Skalierung testen
+./version-manager.sh scale 8
+
+# HPA Status prüfen
+./version-manager.sh status
+```
+
+### 📊 Metriken & Alerting
+
+Das System überwacht automatisch:
+
+- **Pod Metrics**: CPU, Memory, Network I/O
+- **Cluster Health**: Node Status, Pod Phases
+- **HPA Behavior**: Scaling Events, Target Metrics
+- **Application Performance**: Response Times, Error Rates
+
 ## 📱 Anwendung
 
 ### Caloguessr - KI-Kalorien-Schätzer
@@ -279,8 +385,10 @@ ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 - [`help.sh`](./help.sh) - Hilfe für OpenStack-Einstellungen  
 - [`version-manager.sh`](./version-manager.sh) - Hauptskript für Version Management
 - [`monitor.sh`](./monitor.sh) - Cluster Monitoring
+- [`scaling-demo.sh`](./scaling-demo.sh) - Automatisierte Scaling-Demo
 - [`cloud-init-master.tpl`](./cloud-init-master.tpl) - Master Node Konfiguration
 - [`main.tf`](./main.tf) - Terraform Infrastructure Definition
+- [`grafana-dashboard-caloguessr.json`](./grafana-dashboard-caloguessr.json) - Grafana Dashboard Konfiguration
 
 ### Template-Dateien
 
@@ -308,9 +416,13 @@ Dieses Projekt steht unter der MIT-Lizenz.
 
 # Letzte Version anzeigen  
 ./version-manager.sh list
-```
 
-**Aktuelle Version**: v1.0  
+# Monitoring Dashboard öffnen
+./version-manager.sh dashboard
+
+# Scaling Demo starten
+./scaling-demo.sh
+``` 
 
 ---
 
