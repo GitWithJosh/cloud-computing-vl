@@ -506,7 +506,7 @@ zero_downtime_deploy() {
     echo "New Ingress URL: $(terraform output -raw app_ingress_url 2>/dev/null)"
     
     # Health check on green environment (simplified)
-    echo "🏥 Health checking Green environment (15 minutes parallel running)..."
+    echo "🏥 Health checking Green environment (20 minutes parallel running)..."
     local health_check_retries=10
     local new_cluster_healthy=false
     
@@ -527,7 +527,7 @@ zero_downtime_deploy() {
         fi
         
         echo "⏳ Green environment not ready yet, waiting 90 seconds..."
-        sleep 90
+        sleep 120
     done
     
     if [ "$new_cluster_healthy" = false ]; then
