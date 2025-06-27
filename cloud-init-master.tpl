@@ -526,8 +526,8 @@ runcmd:
   - systemctl start docker
   - systemctl enable docker
   
-  # Install K3s master
-  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode=644 --disable=traefik" sh -
+  # Install K3s master with Traefik enabled for Ingress
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode=644" sh -
   
   # Quick wait for K3s
   - sleep 30

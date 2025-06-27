@@ -82,6 +82,8 @@ generate_intensive_load() {
     echo -e "${BLUE}📊 Monitoring URLs:${NC}"
     echo -e "${GREEN}Grafana: http://$MASTER_IP:30300${NC}"
     echo -e "${GREEN}Prometheus: http://$MASTER_IP:30090${NC}"
+    echo -e "${GREEN}App (Ingress): http://$MASTER_IP${NC}"
+    echo -e "${GREEN}App (NodePort): http://$MASTER_IP:30001${NC}"
     echo
     
     # Intensive Load Generator auf Master starten
@@ -110,7 +112,8 @@ generate_intensive_load() {
 monitor_scaling() {
     echo -e "${BLUE}👀 Monitoring HPA Scaling (drücke Ctrl+C zum Beenden)...${NC}"
     echo -e "${YELLOW}   Grafana Dashboard: http://$MASTER_IP:30300${NC}"
-    echo -e "${YELLOW}   App URL: http://$MASTER_IP:30001${NC}"
+    echo -e "${YELLOW}   App (Ingress): http://$MASTER_IP${NC}"
+    echo -e "${YELLOW}   App (NodePort): http://$MASTER_IP:30001${NC}"
     echo
     
     while true; do

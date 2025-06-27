@@ -77,6 +77,27 @@ resource "openstack_networking_secgroup_rule_v2" "prometheus" {
   security_group_id = openstack_networking_secgroup_v2.k8s_cluster.id
 }
 
+# Security Group für Traefik Ingress Controller
+resource "openstack_networking_secgroup_rule_v2" "ingress_http" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 80
+  port_range_max    = 80
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.k8s_cluster.id
+}
+
+resource "openstack_networking_secgroup_rule_v2" "ingress_https" {
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  port_range_min    = 443
+  port_range_max    = 443
+  remote_ip_prefix  = "0.0.0.0/0"
+  security_group_id = openstack_networking_secgroup_v2.k8s_cluster.id
+}
+
 # K8s Master Node
 resource "openstack_compute_instance_v2" "k8s_master" {
   name            = "k8s-master"
@@ -128,6 +149,11 @@ output "worker_ips" {
 output "app_url" {
   description = "URL to access the Caloguessr application"
   value       = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}:30001"
+}
+
+output "app_ingress_url" {
+  description = "Ingress URL to access the Caloguessr application"
+  value       = "http://${openstack_compute_instance_v2.k8s_master.access_ip_v4}"
 }
 
 output "ssh_master" {

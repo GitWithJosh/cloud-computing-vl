@@ -64,6 +64,27 @@ spec:
       targetPort: 8501
       nodePort: 30001
 ---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: caloguessr-ingress
+  labels:
+    app: caloguessr
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.rule: "PathPrefix(`/`)"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: caloguessr-service
+            port:
+              number: 8501
+---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
