@@ -21,15 +21,6 @@ data "local_file" "ssh_public_key" {
   filename = pathexpand("~/.ssh/${var.key_pair}.pub")
 }
 
-# Local values for unique naming
-locals {
-  # Use workspace name for deployment ID, with fallback to random ID for default workspace
-  deployment_id = terraform.workspace != "default" ? terraform.workspace : random_id.deployment.hex
-  
-  # Ensure unique naming across environments
-  name_prefix = "k8s-${local.deployment_id}"
-}
-
 # Random ID for unique resource naming (only needed for default workspace)
 resource "random_id" "deployment" {
   count       = terraform.workspace == "default" ? 1 : 0
@@ -41,11 +32,15 @@ resource "random_id" "deployment" {
   }
 }
 
-# Data source to reference random_id when it exists
-data "random_id" "deployment" {
-  count       = terraform.workspace == "default" ? 1 : 0
-  byte_length = 4
-  depends_on  = [random_id.deployment]
+# Local values for unique naming
+locals {
+  # Use workspace name for deployment ID, with fallback to random ID for default workspace
+  deployment_id = terraform.workspace != "default" ? terraform.workspace : (
+    length(random_id.deployment) > 0 ? random_id.deployment[0].hex : "default"
+  )
+  
+  # Ensure unique naming across environments
+  name_prefix = "k8s-${local.deployment_id}"
 }
 
 # Security Group für K8s Cluster
