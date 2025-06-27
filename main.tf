@@ -6,6 +6,9 @@ terraform {
     openstack = {
       source  = "terraform-provider-openstack/openstack"
     }
+    random = {
+      source = "hashicorp/random"
+    }
   }
 }
 
@@ -18,10 +21,37 @@ data "local_file" "ssh_public_key" {
   filename = pathexpand("~/.ssh/${var.key_pair}.pub")
 }
 
+# Local values for unique naming
+locals {
+  # Use workspace name for deployment ID, with fallback to random ID for default workspace
+  deployment_id = terraform.workspace != "default" ? terraform.workspace : random_id.deployment.hex
+  
+  # Ensure unique naming across environments
+  name_prefix = "k8s-${local.deployment_id}"
+}
+
+# Random ID for unique resource naming (only needed for default workspace)
+resource "random_id" "deployment" {
+  count       = terraform.workspace == "default" ? 1 : 0
+  byte_length = 4
+  
+  # Ensure this changes on each default workspace deployment
+  keepers = {
+    timestamp = timestamp()
+  }
+}
+
+# Data source to reference random_id when it exists
+data "random_id" "deployment" {
+  count       = terraform.workspace == "default" ? 1 : 0
+  byte_length = 4
+  depends_on  = [random_id.deployment]
+}
+
 # Security Group für K8s Cluster
 resource "openstack_networking_secgroup_v2" "k8s_cluster" {
-  name        = "k8s-cluster"
-  description = "Security group for Kubernetes cluster"
+  name        = "${local.name_prefix}-cluster"
+  description = "Security group for Kubernetes cluster (${local.deployment_id})"
 }
 
 resource "openstack_networking_secgroup_rule_v2" "k8s_api" {
@@ -98,7 +128,7 @@ resource "openstack_networking_secgroup_rule_v2" "ingress_https" {
 
 # K8s Master Node
 resource "openstack_compute_instance_v2" "k8s_master" {
-  name            = "k8s-master"
+  name            = "${local.name_prefix}-master"
   image_id        = var.image_id
   flavor_name     = var.flavor_name
   key_pair        = var.key_pair
@@ -118,7 +148,7 @@ resource "openstack_compute_instance_v2" "k8s_master" {
 # K8s Worker Nodes
 resource "openstack_compute_instance_v2" "k8s_workers" {
   count           = var.worker_count
-  name            = "k8s-worker-${count.index + 1}"
+  name            = "${local.name_prefix}-worker-${count.index + 1}"
   image_id        = var.image_id
   flavor_name     = var.flavor_name
   key_pair        = var.key_pair
@@ -134,6 +164,11 @@ resource "openstack_compute_instance_v2" "k8s_workers" {
 }
 
 # Outputs
+output "deployment_id" {
+  description = "Unique deployment identifier"
+  value       = local.deployment_id
+}
+
 output "master_ip" {
   description = "IP address of the K8s master node"
   value       = openstack_compute_instance_v2.k8s_master.access_ip_v4
