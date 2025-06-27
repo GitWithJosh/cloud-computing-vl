@@ -20,6 +20,42 @@ get_ssh_key() {
     fi
 }
 
+# Robuste Terraform Workspace Management Funktion
+safe_workspace_delete() {
+    local workspace_name=$1
+    local current_workspace=$(terraform workspace show 2>/dev/null)
+    
+    if [ -z "$workspace_name" ]; then
+        echo "⚠️ No workspace name provided for deletion"
+        return 1
+    fi
+    
+    # Prüfe ob Workspace existiert
+    if ! terraform workspace list 2>/dev/null | grep -q "^\s*$workspace_name$\|^\*\s*$workspace_name$"; then
+        echo "ℹ️ Workspace '$workspace_name' does not exist, skipping deletion"
+        return 0
+    fi
+    
+    # Prüfe ob wir in der zu löschenden Workspace sind
+    if [ "$current_workspace" = "$workspace_name" ]; then
+        echo "🔄 Switching away from workspace '$workspace_name' before deletion..."
+        if ! terraform workspace select default 2>/dev/null; then
+            echo "❌ Could not switch to default workspace"
+            return 1
+        fi
+    fi
+    
+    # Lösche Workspace
+    echo "🗑️ Deleting workspace '$workspace_name'..."
+    if terraform workspace delete "$workspace_name" 2>/dev/null; then
+        echo "✅ Workspace '$workspace_name' deleted successfully"
+        return 0
+    else
+        echo "⚠️ Could not delete workspace '$workspace_name' (may have resources or other issues)"
+        return 1
+    fi
+}
+
 show_help() {
     echo "🚀 Kubernetes Cluster Version Manager"
     echo ""
@@ -479,7 +515,8 @@ zero_downtime_deploy() {
     if ! TF_LOG=ERROR terraform apply -auto-approve; then
         echo "❌ Green deployment failed, cleaning up..."
         terraform workspace select "$current_workspace" 2>/dev/null
-        terraform workspace delete "$green_workspace" -force 2>/dev/null
+        # Korrekte Workspace-Löschung
+        safe_workspace_delete "$green_workspace"
         git checkout "$current_version" 2>/dev/null
         exit 1
     fi
@@ -493,7 +530,8 @@ zero_downtime_deploy() {
         echo "❌ Failed to get new master IP"
         terraform destroy -auto-approve > /dev/null 2>&1
         terraform workspace select "$current_workspace" 2>/dev/null
-        terraform workspace delete "$green_workspace" -force 2>/dev/null
+        # Korrekte Workspace-Löschung
+        safe_workspace_delete "$green_workspace"
         git checkout "$current_version" 2>/dev/null
         exit 1
     fi
@@ -534,7 +572,8 @@ zero_downtime_deploy() {
         echo "❌ Green environment failed health check, rolling back..."
         terraform destroy -auto-approve > /dev/null 2>&1
         terraform workspace select "$current_workspace" 2>/dev/null
-        terraform workspace delete "$green_workspace" -force 2>/dev/null
+        # Korrekte Workspace-Löschung: erst wechseln, dann löschen
+        safe_workspace_delete "$green_workspace"
         git checkout "$current_version" 2>/dev/null
         echo "🔄 Rollback completed"
         exit 1
@@ -609,7 +648,8 @@ zero_downtime_deploy() {
         
         # Return to main workspace and cleanup temp workspace
         terraform workspace select "$current_workspace" 2>/dev/null
-        terraform workspace delete "$temp_blue_workspace" -force 2>/dev/null
+        # Korrekte Workspace-Löschung
+        safe_workspace_delete "$temp_blue_workspace"
     else
         echo "⚠️  Warning: Could not create temporary cleanup workspace"
         echo "   Manual cleanup may be required for Blue environment: $current_master_ip"
@@ -617,7 +657,8 @@ zero_downtime_deploy() {
     
     # Final cleanup
     terraform workspace select "$current_workspace" 2>/dev/null
-    terraform workspace delete "$green_workspace" -force 2>/dev/null || true
+    # Korrekte Workspace-Löschung am Ende
+    safe_workspace_delete "$green_workspace"
     rm -f "$green_state_backup" 2>/dev/null || true
     
     echo ""
