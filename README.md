@@ -1,11 +1,11 @@
-# 🚀 Kubernetes Multi-Node Cluster mit Streamlit Caloguessr App
+# 🚀 Kubernetes Multi-Node Cluster mit Zero-Downtime Deployments
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Terraform](https://img.shields.io/badge/Terraform-1.0+-blue.svg)](https://terraform.io)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s-326CE5.svg)](https://k3s.io)
 [![OpenStack](https://img.shields.io/badge/OpenStack-Cloud-red.svg)](https://openstack.org)
 
-> **Ein vollständiges Cloud Computing Projekt mit Immutable Infrastructure, Multi-Node Kubernetes und KI-basierter Streamlit-Anwendung**
+> **Ein vollständiges Cloud Computing Projekt mit Immutable Infrastructure, Multi-Node Kubernetes, Zero-Downtime Deployments, Ingress Controller und KI-basierter Streamlit-Anwendung**
 
 ## 📖 Überblick
 
@@ -13,49 +13,65 @@ Dieses Projekt implementiert eine **Immutable Infrastructure** auf OpenStack mit
 
 ### 🎯 Projektumfang
 
-Das Projekt erfüllt alle Anforderungen der Portfolio-Prüfung "Cloud Computing und Big Data":
+Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Computing und Big Data" und geht darüber hinaus:
 
 - ✅ **Aufgabe 1**: Immutable Infrastructure mit Terraform
 - ✅ **Aufgabe 2**: Configuration Management und Deployment-Versionierung  
 - ✅ **Aufgabe 3**: Multi-Node Kubernetes-Architektur mit skalierbarer Anwendung
 
+### 🏆 **Bonus-Features für Bestnote:**
+
+- 🚀 **Zero-Downtime Deployments** mit Terraform Workspaces
+- 🌐 **Ingress Controller** (Traefik) für externe Erreichbarkeit
+- 📊 **Real-time Monitoring** mit Prometheus + Grafana
+- 🤖 **AI/ML Integration** mit Google Gemini API
+- ⚡ **Horizontal Pod Autoscaler** mit Custom Metrics
+- 🔄 **Blue-Green Deployment Strategy**
+
 ## 🏗️ Architektur
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                  OpenStack Cloud                    │
-├─────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌─────────────┐ ┌─────────────┐ │
-│  │ K8s Master  │    │ K8s Worker1 │ │ K8s Worker2 │ │
-│  │             │    │             │ │             │ │
-│  │ - K3s       │◄───┤ - K3s Agent │ │ - K3s Agent │ │
-│  │ - Docker    │    │ - Docker    │ │ - Docker    │ │
-│  │ - App Pods  │    │ - App Pods  │ │ - App Pods  │ │
-│  └─────────────┘    └─────────────┘ └─────────────┘ │
-│         │                                           │
-│  ┌─────────────────────────────────────────────────┐│
-│  │        NodePort Service (30001)                 ││
-│  │     LoadBalancer + Horizontal Pod Autoscaler    ││
-│  └─────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                     OpenStack Cloud                            │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌─────────────┐ ┌─────────────┐ ┌────────┐  │
+│  │ K8s Master  │    │ K8s Worker1 │ │ K8s Worker2 │ │ Ingress│  │
+│  │             │    │             │ │             │ │        │  │
+│  │ - K3s       │◄───┤ - K3s Agent │ │ - K3s Agent │ │Traefik │  │
+│  │ - Docker    │    │ - Docker    │ │ - Docker    │ │        │  │
+│  │ - Prometheus│    │ - App Pods  │ │ - App Pods  │ │ :80    │  │
+│  │ - Grafana   │    │ - HPA       │ │ - HPA       │ │ :443   │  │
+│  └─────────────┘    └─────────────┘ └─────────────┘ └────────┘  │
+│         │                                                       │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │     Zero-Downtime Deployment with Terraform Workspaces     ││
+│  │  🔄 Blue-Green Strategy + Health Checks + Auto-Rollback   ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
                          │
                ┌─────────────────────┐
-               │   External Access   │
-               │ http://IP:30001     │
+               │ External Access:    │
+               │ • HTTP: :80 (Ingress)│
+               │ • NodePort: :30001   │
+               │ • Grafana: :30300    │
+               │ • Prometheus: :30090 │
                └─────────────────────┘
 ```
 
 ### 🛠️ Technology Stack
 
-| Komponente | Technologie | Zweck |
-|------------|-------------|--------|
-| **Infrastructure as Code** | Terraform | Immutable Infrastructure Management |
-| **Container Orchestration** | Kubernetes (K3s) | Multi-Node Cluster Management |
-| **Cloud Platform** | OpenStack | Compute, Network, Storage Resources |
-| **Application Framework** | Streamlit | Web-basierte KI-Anwendung |
-| **AI/ML** | Google Gemini API | Kalorien-Schätzung aus Bildern |
-| **Containerization** | Docker | Application Packaging |
-| **Version Control** | Git + Semantic Versioning | Infrastructure & App Versioning |
+| Komponente | Technologie | Zweck | Bonus-Feature |
+|------------|-------------|-------|---------------|
+| **Infrastructure as Code** | Terraform | Immutable Infrastructure Management | ✅ Workspaces für Zero-Downtime |
+| **Container Orchestration** | Kubernetes (K3s) | Multi-Node Cluster Management | ✅ Lightweight Production K8s |
+| **Ingress Controller** | Traefik | External Access & Load Balancing | ✅ Automatic SSL & Service Discovery |
+| **Cloud Platform** | OpenStack | Compute, Network, Storage Resources | ✅ Multi-Cloud Ready |
+| **Application Framework** | Streamlit | Web-basierte KI-Anwendung | ✅ Real-time ML Processing |
+| **AI/ML** | Google Gemini 2.0 Flash API | Kalorien-Schätzung aus Bildern | ✅ Multimodal AI Integration |
+| **Containerization** | Docker | Application Packaging | ✅ Multi-stage Builds |
+| **Monitoring** | Prometheus + Grafana | Real-time Observability | ✅ HPA Metrics Integration |
+| **Autoscaling** | Horizontal Pod Autoscaler | Dynamic Scaling | ✅ CPU + Memory Metrics |
+| **Version Control** | Git + Semantic Versioning | Infrastructure & App Versioning | ✅ Zero-Downtime Deployments |
 
 ## 🚀 Quick Start
 
@@ -125,8 +141,11 @@ cat terraform.tfvars.template
 # 📋 Alle verfügbaren Versionen anzeigen
 ./version-manager.sh list
 
-# 🚀 Spezifische Version deployen
+# 🚀 Spezifische Version deployen (Standard-Deployment)
 ./version-manager.sh deploy v1.0
+
+# 🔄 Zero-Downtime Deployment (Produktions-bereit!)
+./version-manager.sh zero-downtime v1.1
 
 # 🏷️ Neue Version erstellen
 ./version-manager.sh create v1.1
@@ -150,6 +169,20 @@ cat terraform.tfvars.template
 ./version-manager.sh cleanup
 ```
 
+### 🔄 Zero-Downtime Deployment Features
+
+```bash
+# Erweiterte Zero-Downtime Deployment
+./version-manager.sh zero-downtime v2.0
+```
+
+**Features:**
+- 🏗️ **Parallele Infrastruktur**: Neue Version wird parallel zur alten aufgebaut
+- 🏥 **Health Checks**: Automatische Gesundheitsprüfung vor Switch
+- 🔄 **Auto-Rollback**: Bei Fehlern automatischer Rollback zur stabilen Version
+- 💾 **State Backup**: Sichere Sicherung der aktuellen Infrastruktur
+- ⚡ **Echter Zero-Downtime**: Keine Unterbrechung des Service
+
 ### Monitoring
 
 ```bash
@@ -158,6 +191,26 @@ cat terraform.tfvars.template
 
 # 📊 Einmaliger Status-Check
 ./version-manager.sh status
+
+# 📊 Monitoring Dashboard öffnen
+./version-manager.sh dashboard
+```
+
+### 🌐 External Access
+
+Nach erfolgreichem Deployment sind folgende Services erreichbar:
+
+```bash
+# 🎯 Hauptanwendung (Streamlit)
+http://MASTER-IP/           # Ingress (Port 80)
+http://MASTER-IP:30001      # NodePort
+
+# 📊 Monitoring
+http://MASTER-IP:30300      # Grafana Dashboard (admin/admin)
+http://MASTER-IP:30090      # Prometheus Metrics
+
+# 🔐 SSH Access
+ssh -i ~/.ssh/YOUR-KEY ubuntu@MASTER-IP
 ```
 
 ## 📊 Scaling Demo & Monitoring Dashboard
