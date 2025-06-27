@@ -110,15 +110,20 @@ generate_intensive_load() {
 }
 
 monitor_scaling() {
-    echo -e "${BLUE}👀 Monitoring HPA Scaling (drücke Ctrl+C zum Beenden)...${NC}"
+    local duration=$1
+    echo -e "${BLUE}👀 Monitoring HPA Scaling für ${duration}s...${NC}"
     echo -e "${YELLOW}   Grafana Dashboard: http://$MASTER_IP:30300${NC}"
     echo -e "${YELLOW}   App (Ingress): http://$MASTER_IP${NC}"
     echo -e "${YELLOW}   App (NodePort): http://$MASTER_IP:30001${NC}"
     echo
     
-    while true; do
+    local start_time=$SECONDS
+    local end_time=$((start_time + duration))
+    
+    while [ $SECONDS -lt $end_time ]; do
+        local remaining=$((end_time - SECONDS))
         ssh -i ~/.ssh/$SSH_KEY -o StrictHostKeyChecking=no ubuntu@$MASTER_IP \
-            "echo '=== $(date '+%Y-%m-%d %H:%M:%S') ===' 
+            "echo '=== $(date '+%Y-%m-%d %H:%M:%S') === (${remaining}s remaining)' 
             echo 'Nodes:'
             kubectl get nodes
             echo 
@@ -136,6 +141,8 @@ monitor_scaling() {
             echo '---'"
         sleep 15
     done
+    
+    echo -e "${GREEN}✅ Monitoring beendet nach ${duration}s${NC}"
 }
 
 # Hauptdemonstration
@@ -165,5 +172,9 @@ generate_intensive_load $DURATION $CONCURRENT
 echo
 echo -e "${BLUE}6️⃣  Monitoring der Skalierung${NC}"
 
-# Monitoring starten
-monitor_scaling
+# Monitoring starten - läuft für die gleiche Dauer wie der Load Test
+monitor_scaling $DURATION
+
+echo
+echo -e "${GREEN}🎉 Scaling Demo beendet!${NC}"
+echo -e "${YELLOW}📊 Check das Grafana Dashboard für detaillierte Metriken: http://$MASTER_IP:30300${NC}"
