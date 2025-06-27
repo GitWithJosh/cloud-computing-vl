@@ -23,7 +23,7 @@ spec:
       containers:
       - name: caloguessr
         image: caloguessr-app:latest
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8501
         resources:

@@ -13,8 +13,6 @@ provider "openstack" {
   # Suppress loadbalancer warnings for this project
 }
 
-# ...existing code...
-
 # Read SSH public key
 data "local_file" "ssh_public_key" {
   filename = pathexpand("~/.ssh/${var.key_pair}.pub")
