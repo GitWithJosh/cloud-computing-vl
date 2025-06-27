@@ -26,21 +26,26 @@ show_help() {
     echo "Usage: $0 [COMMAND] [OPTIONS]"
     echo ""
     echo "Commands:"
-    echo "  deploy <version>    - Deploy specific version"
-    echo "  rollback <version>  - Rollback to version"
-    echo "  create <version>    - Create new version tag"
-    echo "  list               - List all versions"
-    echo "  status             - Show cluster status"
-    echo "  scale <replicas>   - Scale application"
-    echo "  cleanup            - Destroy infrastructure"
-    echo "  logs               - Show application logs"
-    echo "  debug              - Debug cluster issues"
+    echo "  deploy <version>       - Deploy specific version"
+    echo "  zero-downtime <version> - Zero-downtime deployment (Production!)"
+    echo "  rollback <version>     - Rollback to version"
+    echo "  create <version>       - Create new version tag"
+    echo "  list                   - List all versions"
+    echo "  status                 - Show cluster status"
+    echo "  scale <replicas>       - Scale application"
+    echo "  monitoring|dashboard   - Open monitoring dashboard"
+    echo "  import-dashboard       - Import Grafana dashboard"
+    echo "  cleanup                - Destroy infrastructure"
+    echo "  logs                   - Show application logs"
+    echo "  debug                  - Debug cluster issues"
     echo ""
     echo "Examples:"
     echo "  $0 deploy v1.0"
+    echo "  $0 zero-downtime v1.1"
     echo "  $0 create v1.1"
     echo "  $0 scale 5"
     echo "  $0 status"
+    echo "  $0 dashboard"
 }
 
 deploy_version() {
@@ -74,6 +79,7 @@ deploy_version() {
     echo "✅ Deployment complete!"
     echo "Master IP: $(terraform output -raw master_ip)"
     echo "App URL: $(terraform output -raw app_url)"
+    echo "Ingress URL: $(terraform output -raw app_ingress_url)"
     echo "SSH: $(terraform output -raw ssh_master)"
     echo ""
     echo "⏳ Waiting for cluster to be ready..."
@@ -197,7 +203,8 @@ show_status() {
         if [ -n "$master_ip" ]; then
             echo "✅ Infrastructure: Deployed"
             echo "Master IP: $master_ip"
-            echo "App URL: $(terraform output -raw app_url)"
+            echo "App URL (NodePort): $(terraform output -raw app_url)"
+            echo "App URL (Ingress): $(terraform output -raw app_ingress_url)"
             echo "SSH Key: $ssh_key"
             echo ""
             echo "🔍 Monitoring URLs:"
@@ -398,10 +405,158 @@ EOF
     echo "📊 Look for 'Caloguessr Scaling Demo Dashboard'"
 }
 
+zero_downtime_deploy() {
+    local new_version=$1
+    if [ -z "$new_version" ]; then
+        echo "❌ New version required"
+        exit 1
+    fi
+    
+    echo "🔄 Starting Zero-Downtime Deployment to version $new_version..."
+    echo "=================================================="
+    
+    # Check if current infrastructure exists
+    if [ ! -f terraform.tfstate ]; then
+        echo "❌ No existing infrastructure found. Use 'deploy' for initial deployment."
+        exit 1
+    fi
+    
+    # Get current infrastructure details
+    echo "📊 Current infrastructure status:"
+    local current_master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    if [ -z "$current_master_ip" ]; then
+        echo "❌ Cannot determine current master IP"
+        exit 1
+    fi
+    
+    echo "Current Master IP: $current_master_ip"
+    
+    # Save current state
+    local backup_dir="terraform-backup-$(date +%Y%m%d-%H%M%S)"
+    echo "💾 Backing up current state to $backup_dir..."
+    mkdir -p "$backup_dir"
+    cp terraform.tfstate* "$backup_dir/" 2>/dev/null || true
+    
+    # Get current version
+    local current_version=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "main")
+    echo "Current version: $current_version"
+    echo "Target version: $new_version"
+    
+    # Checkout new version
+    echo "🔄 Switching to version $new_version..."
+    git checkout $new_version 2>/dev/null || {
+        echo "❌ Version $new_version not found"
+        exit 1
+    }
+    
+    # Use workspace to deploy new infrastructure parallel
+    echo "🏗️  Creating new infrastructure with workspace..."
+    
+    # Create new workspace for parallel deployment
+    local workspace_name="deploy-$new_version-$(date +%s)"
+    terraform workspace new "$workspace_name" || terraform workspace select "$workspace_name"
+    
+    # Deploy new infrastructure
+    echo "🚀 Deploying new infrastructure..."
+    terraform init -upgrade > /dev/null 2>&1
+    if ! TF_LOG=ERROR terraform apply -auto-approve; then
+        echo "❌ New deployment failed, rolling back..."
+        terraform workspace select default
+        terraform workspace delete "$workspace_name" -force 2>/dev/null || true
+        git checkout "$current_version" 2>/dev/null
+        exit 1
+    fi
+    
+    # Get new infrastructure details
+    local new_master_ip=$(terraform output -raw master_ip)
+    local ssh_key=$(get_ssh_key)
+    
+    echo ""
+    echo "✅ New infrastructure deployed!"
+    echo "New Master IP: $new_master_ip"
+    echo "New App URL: $(terraform output -raw app_url)"
+    echo "New Ingress URL: $(terraform output -raw app_ingress_url)"
+    
+    # Wait for new cluster to be ready
+    echo "⏳ Waiting for new cluster to be ready..."
+    sleep 300  # 5 minutes for cluster initialization
+    
+    # Health check on new cluster
+    echo "🏥 Performing health check on new cluster..."
+    local health_check_retries=10
+    local new_cluster_healthy=false
+    
+    for i in $(seq 1 $health_check_retries); do
+        echo "Health check attempt $i/$health_check_retries..."
+        
+        if ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@$new_master_ip "
+            # Check nodes are ready
+            kubectl get nodes | grep -q Ready &&
+            # Check caloguessr pods are running
+            kubectl get pods -l app=caloguessr | grep -q Running &&
+            # Check app is responding
+            curl -s --connect-timeout 5 --max-time 10 http://localhost:30001 | grep -q 'streamlit' > /dev/null 2>&1
+        " 2>/dev/null; then
+            new_cluster_healthy=true
+            echo "✅ New cluster is healthy!"
+            break
+        fi
+        
+        echo "⏳ Cluster not ready yet, waiting 60 seconds..."
+        sleep 60
+    done
+    
+    if [ "$new_cluster_healthy" = false ]; then
+        echo "❌ New cluster failed health check, rolling back..."
+        terraform destroy -auto-approve
+        terraform workspace select default
+        terraform workspace delete "$workspace_name" -force 2>/dev/null || true
+        git checkout "$current_version" 2>/dev/null
+        echo "🔄 Rollback completed"
+        exit 1
+    fi
+    
+    # Switch to new infrastructure as default
+    echo "🔄 Switching to new infrastructure..."
+    
+    # Simplified approach: rename current state as backup and move new state to default
+    echo "📊 Updating infrastructure state..."
+    
+    # Copy old state to backup
+    if [ -f terraform.tfstate ]; then
+        cp terraform.tfstate "$backup_dir/terraform.tfstate.old"
+    fi
+    
+    # Get new state from workspace
+    terraform workspace select "$workspace_name"
+    local new_state_content=$(cat terraform.tfstate)
+    
+    # Switch back to default and update state
+    terraform workspace select default
+    echo "$new_state_content" > terraform.tfstate
+    
+    # Clean up workspace
+    terraform workspace delete "$workspace_name" -force 2>/dev/null || true
+    
+    echo ""
+    echo "🎉 Zero-downtime deployment completed successfully!"
+    echo "================================================="
+    echo "New Master IP: $new_master_ip"
+    echo "App URL: $(terraform output -raw app_url)"
+    echo "Ingress URL: $(terraform output -raw app_ingress_url)"
+    echo "Version: $new_version"
+    echo ""
+    echo "🔍 Final status check:"
+    check_app_status $new_master_ip $ssh_key
+}
+
 # Command handling
 case $1 in
     "deploy")
         deploy_version $2
+        ;;
+    "zero-downtime")
+        zero_downtime_deploy $2
         ;;
     "create")
         create_version $2
