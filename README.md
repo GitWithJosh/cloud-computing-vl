@@ -19,7 +19,7 @@ Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Comput
 - ✅ **Aufgabe 2**: Configuration Management und Deployment-Versionierung  
 - ✅ **Aufgabe 3**: Multi-Node Kubernetes-Architektur mit skalierbarer Anwendung
 
-### 🏆 **Bonus-Features für Bestnote:**
+### 🏆 **Bonus-Features:**
 
 - 🚀 **Zero-Downtime Deployments** mit Terraform Workspaces
 - 🌐 **Ingress Controller** (Traefik) für externe Erreichbarkeit
