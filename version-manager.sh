@@ -73,7 +73,6 @@ show_help() {
     echo "  import-dashboard       - Import Grafana dashboard"
     echo "  cleanup                - Destroy infrastructure"
     echo "  logs                   - Show application logs"
-    echo "  debug                  - Debug cluster issues"
     echo ""
     echo "Examples:"
     echo "  $0 deploy v1.0"
@@ -322,50 +321,6 @@ show_logs() {
         echo
         echo '=== System Logs (Docker) ==='
         sudo journalctl -u docker --no-pager --lines=10
-    " 2>/dev/null
-}
-
-debug_cluster() {
-    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
-    local ssh_key=$(get_ssh_key)
-    
-    if [ -z "$master_ip" ]; then
-        echo "❌ No cluster deployed"
-        exit 1
-    fi
-    
-    if [ -z "$ssh_key" ]; then
-        echo "❌ Could not determine SSH key"
-        exit 1
-    fi
-    
-    echo "🔍 Debug Information"
-    echo "===================="
-    echo "Using SSH key: $ssh_key"
-    
-    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        echo '=== Docker Images ==='
-        sudo docker images
-        echo
-        echo '=== K3s Images ==='
-        sudo /usr/local/bin/k3s ctr images ls | grep caloguessr || echo 'No caloguessr image found'
-        echo
-        echo '=== Checking app files ==='
-        ls -la /root/app/
-        echo
-        echo '=== Manually deploying app ==='
-        cd /root/app
-        if [ -f Dockerfile ]; then
-            echo 'Rebuilding Docker image...'
-            sudo docker build -t caloguessr-app:latest . || echo 'Build failed'
-            echo 'Importing to K3s...'
-            sudo docker save caloguessr-app:latest | sudo /usr/local/bin/k3s ctr images import - || echo 'Import failed'
-            echo 'Applying deployment...'
-            kubectl apply -f k8s-deployment.yaml || echo 'Deploy failed'
-            echo 'Waiting for pods...'
-            sleep 20
-            kubectl get pods -l app=caloguessr
-        fi
     " 2>/dev/null
 }
 
@@ -815,9 +770,6 @@ case $1 in
         ;;
     "logs")
         show_logs
-        ;;
-    "debug")
-        debug_cluster
         ;;
     "monitoring"|"dashboard")
         monitoring_dashboard
