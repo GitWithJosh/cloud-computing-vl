@@ -162,9 +162,6 @@ cat terraform.tfvars.template
 # 📋 Application Logs anzeigen
 ./version-manager.sh logs
 
-# 🔍 Cluster debuggen
-./version-manager.sh debug
-
 # 🧹 Infrastructure zerstören
 ./version-manager.sh cleanup
 ```
@@ -406,10 +403,7 @@ v1.0.0 - Initial Release
 ### Debugging
 
 ```bash
-# 🔍 Vollständige Debug-Informationen
-./version-manager.sh debug
-
-# 📋 Application Logs
+#  Application Logs
 ./version-manager.sh logs
 
 # 🔧 Manuelle SSH-Verbindung (automatisch richtiger SSH-Key)
@@ -425,7 +419,7 @@ ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 |---------|---------|--------|
 | **SSH-Verbindung fehlschlägt** | Connection refused | SSH-Key Name in terraform.tfvars prüfen |
 | **SSH-Key nicht gefunden** | Permission denied | Prüfen ob `~/.ssh/YOUR-KEY` existiert |
-| **App startet nicht** | Pods in `Pending` Status | `./version-manager.sh debug` |
+| **App startet nicht** | Pods in `Pending` Status | `./version-manager.sh logs` für Details |
 | **OpenStack-Fehler** | Authentication failed | openrc.sh Credentials prüfen |
 | **Workers joinen nicht** | Nur Master Node sichtbar | Cloud-init Logs prüfen |
 | **Service nicht erreichbar** | 404/Connection Refused | Security Groups & NodePort prüfen |
