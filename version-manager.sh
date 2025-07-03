@@ -519,7 +519,7 @@ zero_downtime_deploy() {
             break
         fi
         
-        echo "⏳ Green environment not ready yet, waiting 90 seconds..."
+        echo "⏳ Green environment not ready yet, waiting 120 seconds..."
         sleep 120
     done
     
