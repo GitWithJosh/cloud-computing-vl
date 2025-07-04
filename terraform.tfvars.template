@@ -2,11 +2,11 @@
 # Copy this file to terraform.tfvars and adjust values
 # Find these values in your OpenStack dashboard
 
-# OpenStack Image ID (Ubuntu 24.04 LTS recommended)
+# OpenStack Image ID
 # Go to: Compute > Images to find your Ubuntu image ID
 image_id = "your-ubuntu-image-id-here"
 
-# Instance flavor (minimum: 2 vCPU, 4GB RAM recommended for K8s)
+# Instance flavor
 # Go to: Admin > Flavors or use: openstack flavor list
 flavor_name = "your-flavor-name-here"
 
