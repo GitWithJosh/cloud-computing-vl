@@ -43,7 +43,7 @@ version-manager.sh   → Zero-Downtime Deployments mit Terraform Workspaces
 ```
 
 ### **Besonderheiten:**
-- **Echte Immutable Updates**: Kompletter Infrastrukturaustausch (nicht nur App)
+- **Echte Immutable Updates**: Kompletter Infrastrukturaustausch
 - **Automatische Backups**: State-Sicherung bei jedem Deployment
 - **Health Checks**: Rollback bei fehlgeschlagenen Deployments
 
@@ -72,25 +72,3 @@ scaling-demo.sh              → Live-Demo für Skalierung
 - 🏆 **Performance Monitoring**: Prometheus + Grafana + Custom Dashboard
 - 🏆 **Automated Scaling**: HPA mit CPU (10%) + Memory (70%) Thresholds
 - 🏆 **Production-Ready**: Health Checks, Resource Limits, Probes
-
----
-
-## 🏆 **Zusätzliche Highlights**
-
-### **Über Anforderungen hinaus:**
-| Feature | Implementierung | Datei |
-|---------|----------------|-------|
-| **Zero-Downtime** | Blue/Green mit Terraform Workspaces | `version-manager.sh` |
-| **AI/ML App** | Google Gemini API für Kalorienschätzung | `caloguessr.py` |
-| **Monitoring** | Prometheus + Grafana + Custom Dashboard | `grafana-dashboard-*.json` |
-| **Automation** | Vollautomatisierte Setup-Scripts | `scaling-demo.sh`, `setup.sh` |
-| **Documentation** | Technologie-Begründungen + Setup-Guide | `TECHNOLOGY-CHOICES.md` |
-
-### **Production-Ready Features:**
-- ✅ **Health Checks** + automatische Rollbacks
-- ✅ **Resource Management** (CPU/Memory Limits)
-- ✅ **Security Groups** für OpenStack
-- ✅ **Backup Strategy** für Terraform States
-- ✅ **Error Handling** in allen Scripts
-
----
