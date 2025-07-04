@@ -152,7 +152,7 @@ deploy_version() {
     echo "⏳ Waiting for cluster to be ready..."
     
     # Längeres Warten für ML-Dependencies
-    echo "📦 Installing ML dependencies (this takes 5-10 minutes)..."
+    echo "📦 Installing ML dependencies (this usually takes 10-15 minutes)..."
     sleep 180  # 3 Minuten warten für initiale Installation
     
     # Check cluster status
