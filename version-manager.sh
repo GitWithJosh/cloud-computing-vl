@@ -689,7 +689,7 @@ rollback_deployment() {
 }
 
 # ========================================
-# 🗂️ BIG DATA FUNCTIONS (Aufgabe 4 & 5)
+# 🗂️ BIG DATA FUNCTIONS (Aufgabe 4)
 # ========================================
 
 setup_datalake() {
@@ -701,7 +701,7 @@ setup_datalake() {
         exit 1
     fi
     
-    echo "🗂️ Setting up Data Lake (MinIO + Spark)"
+    echo "🗂️ Setting up Data Lake (MinIO)"
     echo "======================================="
     
     # --- Lokale Pfade zu den YAML-Dateien ---
@@ -839,10 +839,7 @@ EOF
         echo '📊 Job submitted! Check status with:'
         echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data'
         echo '📋 View logs with:'
-        echo '   # Get job name first:'
-        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data'
-        echo '   # Then view logs (replace JOB_NAME with actual name):'
-        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl logs job/JOB_NAME -n big-data'
+        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl logs job/food-calorie-analysis-'\${JOB_TIMESTAMP}' -n big-data'
     "
 }
 
@@ -929,7 +926,7 @@ EOF
         echo '📋 Check status with SSH:'
         echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data'
         echo '📋 View logs with SSH:'
-        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl logs job/ml-food-pipeline-'"\$JOB_TIMESTAMP"' -n big-data'
+        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl logs job/ml-food-pipeline-'\${JOB_TIMESTAMP}' -n big-data'
     "
 }
 
@@ -995,7 +992,6 @@ case $1 in
     "cleanup")
         cleanup
         ;;
-    # 🗂️ Big Data Commands (Aufgabe 4 & 5)
     "setup-datalake")
         setup_datalake
         ;;
