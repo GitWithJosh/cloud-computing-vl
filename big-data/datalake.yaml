@@ -75,66 +75,6 @@ spec:
     nodePort: 30901
   type: NodePort
 ---
-# Spark Operator ServiceAccount & RBAC
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: spark
-  namespace: big-data
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: spark-role
-rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "configmaps"]
-  verbs: ["*"]
-- apiGroups: ["apps"]
-  resources: ["deployments"]
-  verbs: ["*"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: spark-role-binding
-subjects:
-- kind: ServiceAccount
-  name: spark
-  namespace: big-data
-roleRef:
-  kind: ClusterRole
-  name: spark-role
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: spark-scripts
-  namespace: big-data
-data:
-  ml-pipeline.py: |
-    # ML Pipeline Script wird hier eingefügt
-    print("🤖 Food Calorie ML Pipeline starting...")
-    import sys
-    print(f"Python version: {sys.version}")
-    
-    # Placeholder - echtes Script würde hier stehen
-    import time
-    import random
-    
-    print("📊 Generating sample food data...")
-    time.sleep(5)
-    
-    foods = ['apple', 'banana', 'chicken', 'rice', 'broccoli']
-    for i in range(10):
-        food = random.choice(foods)
-        calories = random.randint(50, 300)
-        print(f"Processed: {food} -> {calories} calories")
-        time.sleep(1)
-    
-    print("✅ ML Pipeline completed!")
----
 # MinIO Setup Job - Erstellt Buckets und Beispieldaten
 apiVersion: batch/v1
 kind: Job
@@ -156,8 +96,6 @@ spec:
           echo "Creating buckets..."
           mc mb myminio/raw-data || echo "Bucket raw-data already exists"
           mc mb myminio/processed-data || echo "Bucket processed-data already exists"
-          mc mb myminio/ml-models || echo "Bucket ml-models already exists"
-          mc mb myminio/logs || echo "Bucket logs already exists"
           
           echo "Creating and uploading sample CSV data..."
           cat > /tmp/test-data.csv << 'CSVEND'
@@ -188,22 +126,6 @@ spec:
           JSONEND
           mc cp /tmp/test-results.json myminio/processed-data/
           
-          echo "Creating and uploading model file..."
-          echo "Random Forest Food Calorie Predictor v1.0 - Trained on food dataset" > /tmp/test-model.txt
-          mc cp /tmp/test-model.txt myminio/ml-models/
-          
-          echo "Creating and uploading log entries..."
-          cat > /tmp/test-pipeline.log << 'LOGEND'
-          2025-01-07 10:00:01 INFO: Data pipeline started
-          2025-01-07 10:00:15 INFO: Downloaded 1000 food samples
-          2025-01-07 10:01:30 INFO: Data cleaning completed
-          2025-01-07 10:02:45 INFO: Feature engineering completed
-          2025-01-07 10:05:20 INFO: Model training completed with R² = 0.89
-          2025-01-07 10:05:25 INFO: Model saved to ml-models/test-model.txt
-          2025-01-07 10:05:30 INFO: Data pipeline completed successfully
-          LOGEND
-          mc cp /tmp/test-pipeline.log myminio/logs/
-          
           echo "Demo buckets and data created successfully!"
           echo "Listing all buckets:"
           mc ls myminio/
@@ -211,9 +133,5 @@ spec:
           mc ls myminio/raw-data/
           echo "Files in processed-data:"
           mc ls myminio/processed-data/
-          echo "Files in ml-models:"
-          mc ls myminio/ml-models/
-          echo "Files in logs:"
-          mc ls myminio/logs/
       restartPolicy: Never
   backoffLimit: 3

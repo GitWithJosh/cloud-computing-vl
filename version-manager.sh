@@ -735,7 +735,7 @@ setup_datalake() {
         
         echo '✅ Data Lake setup complete!'
         echo 'MinIO Console: http://$master_ip:30901 (minioadmin/minioadmin123)'
-        echo '📂 Created buckets: raw-data, processed-data, ml-models, logs'
+        echo '📂 Created buckets: raw-data & processed-data'
         echo '📄 Sample files uploaded for demo purposes'
         
         echo '🧹 Cleaning up temp files...'
