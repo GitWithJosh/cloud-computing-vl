@@ -9,16 +9,45 @@ get_ssh_key() {
         SSH_KEY=$(terraform output -raw ssh_master 2>/dev/null | grep -o "~/.ssh/[^ ]*" | sed 's|~/.ssh/||')
         if [ -n "$SSH_KEY" ]; then
             echo "$SSH_KEY"
-        else
-            # Fallback: try to get from terraform.tfvars
-            SSH_KEY=$(grep "key_pair" terraform.tfvars 2>/dev/null | cut -d'"' -f2)
-            echo "$SSH_KEY"
         fi
     else
         # Fallback: try to get from terraform.tfvars
         SSH_KEY=$(grep "key_pair" terraform.tfvars 2>/dev/null | cut -d'"' -f2)
         echo "$SSH_KEY"
     fi
+}
+
+show_help() {
+    echo "🚀 Kubernetes Cluster Version Manager"
+    echo ""
+    echo "Usage: $0 [COMMAND] [OPTIONS]"
+    echo ""
+    echo "Commands:"
+    echo "  deploy <version>       - Deploy specific version"
+    echo "  zero-downtime <version> - Zero-downtime deployment (Production!)"
+    echo "  rollback <version>     - Rollback to version"
+    echo "  create <version>       - Create new version tag"
+    echo "  list                   - List all versions"
+    echo "  status                 - Show cluster status"
+    echo "  scale <replicas>       - Scale application"
+    echo "  monitoring|dashboard   - Open monitoring dashboard"
+    echo "  import-dashboard       - Import Grafana dashboard"
+    echo "  cleanup                - Destroy infrastructure"
+    echo "  logs                   - Show application logs"
+    echo ""
+    echo "🗂️ Big Data Commands:"
+    echo "  setup-datalake         - Install MinIO + Python ML data lake"
+    echo "  ml-pipeline            - Run Python ML pipeline on big data"
+    echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
+    echo ""
+    echo "Examples:"
+    echo "  $0 deploy v1.0"
+    echo "  $0 zero-downtime v1.1"
+    echo "  $0 setup-datalake"
+    echo "  $0 setup-streaming"
+    echo "  $0 start-stream"
+    echo "  $0 run-batch-job food-analysis"
+    echo "  $0 start-stream"
 }
 
 # Robuste Terraform Workspace Management Funktion
@@ -87,39 +116,6 @@ safe_workspace_delete() {
             return 1
         fi
     fi
-}
-
-show_help() {
-    echo "🚀 Kubernetes Cluster Version Manager"
-    echo ""
-    echo "Usage: $0 [COMMAND] [OPTIONS]"
-    echo ""
-    echo "Commands:"
-    echo "  deploy <version>       - Deploy specific version"
-    echo "  zero-downtime <version> - Zero-downtime deployment (Production!)"
-    echo "  rollback <version>     - Rollback to version"
-    echo "  create <version>       - Create new version tag"
-    echo "  list                   - List all versions"
-    echo "  status                 - Show cluster status"
-    echo "  scale <replicas>       - Scale application"
-    echo "  monitoring|dashboard   - Open monitoring dashboard"
-    echo "  import-dashboard       - Import Grafana dashboard"
-    echo "  cleanup                - Destroy infrastructure"
-    echo "  logs                   - Show application logs"
-    echo ""
-    echo "🗂️ Big Data Commands:"
-    echo "  setup-datalake         - Install MinIO + Python ML data lake"
-    echo "  ml-pipeline            - Run Python ML pipeline on big data"
-    echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
-    echo ""
-    echo "Examples:"
-    echo "  $0 deploy v1.0"
-    echo "  $0 zero-downtime v1.1"
-    echo "  $0 setup-datalake"
-    echo "  $0 setup-streaming"
-    echo "  $0 start-stream"
-    echo "  $0 run-batch-job food-analysis"
-    echo "  $0 start-stream"
 }
 
 deploy_version() {
