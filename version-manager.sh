@@ -835,7 +835,7 @@ EOF
 # ========================================
 
 cleanup_ml_jobs() {
-    echo "🧹 Cleaning up long-running ML jobs..."
+    echo "🧹 Cleaning up ML jobs..."
     
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
     local ssh_key=$(get_ssh_key)
