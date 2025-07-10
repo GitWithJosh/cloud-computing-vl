@@ -10,7 +10,7 @@ Dieses Script demonstriert eine vollständige ML-Pipeline mit:
 - Model Evaluation & Performance Metrics
 - Batch Prediction
 
-AUFGABE 4: Big Data Processing mit Python ML (Production-Ready)
+AUFGABE 4: Big Data Processing mit Python ML
 """
 
 import pandas as pd
@@ -18,7 +18,6 @@ import numpy as np
 import json
 import time
 import logging
-import requests
 import subprocess
 import os
 from datetime import datetime
