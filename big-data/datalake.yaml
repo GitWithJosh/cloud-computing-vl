@@ -45,6 +45,18 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 10
         resources:
           requests:
             memory: "256Mi"
@@ -84,6 +96,10 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+      - name: wait-for-minio
+        image: busybox:1.28
+        command: ['sh', '-c', 'until nc -z minio 9000; do echo "Waiting for MinIO..."; sleep 2; done; echo "MinIO is ready!"']
       containers:
       - name: minio-setup
         image: minio/mc:latest
@@ -92,6 +108,15 @@ spec:
         - |
           echo "Configuring MinIO client..."
           mc alias set myminio http://minio:9000 minioadmin minioadmin123
+          
+          # Warte kurz, damit die Verbindung stabil ist
+          sleep 5
+          echo "Testing MinIO connection..."
+          mc ls myminio || {
+            echo "MinIO connection failed, retrying in 5 seconds..."
+            sleep 5
+            mc alias set myminio http://minio:9000 minioadmin minioadmin123
+          }
           
           echo "Creating buckets..."
           mc mb myminio/raw-data || echo "Bucket raw-data already exists"
@@ -134,4 +159,5 @@ spec:
           echo "Files in processed-data:"
           mc ls myminio/processed-data/
       restartPolicy: Never
-  backoffLimit: 3
+  backoffLimit: 5
+  activeDeadlineSeconds: 300
