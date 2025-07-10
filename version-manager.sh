@@ -5,7 +5,8 @@ source openrc.sh
 # Function to get SSH key from terraform output
 get_ssh_key() {
     if [ -f terraform.tfstate ]; then
-        SSH_KEY=$(terraform output -raw ssh_master 2>/dev/null | grep -o "\-i ~/.ssh/[^ ]*" | cut -d'/' -f4)
+        # Extract SSH key from terraform output: "ssh -i ~/.ssh/keyname user@ip"
+        SSH_KEY=$(terraform output -raw ssh_master 2>/dev/null | grep -o "~/.ssh/[^ ]*" | sed 's|~/.ssh/||')
         if [ -n "$SSH_KEY" ]; then
             echo "$SSH_KEY"
         else
@@ -106,13 +107,20 @@ show_help() {
     echo "  cleanup                - Destroy infrastructure"
     echo "  logs                   - Show application logs"
     echo ""
+    echo "🗂️ Big Data Commands:"
+    echo "  setup-datalake         - Install MinIO + Python ML data lake"
+    echo "  run-batch-job <job>    - Run Python ML batch processing job"
+    echo "  ml-pipeline            - Run Python ML pipeline on big data"
+    echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
+    echo ""
     echo "Examples:"
     echo "  $0 deploy v1.0"
     echo "  $0 zero-downtime v1.1"
-    echo "  $0 create v1.1"
-    echo "  $0 scale 5"
-    echo "  $0 status"
-    echo "  $0 dashboard"
+    echo "  $0 setup-datalake"
+    echo "  $0 setup-streaming"
+    echo "  $0 start-stream"
+    echo "  $0 run-batch-job food-analysis"
+    echo "  $0 start-stream"
 }
 
 deploy_version() {
@@ -424,7 +432,7 @@ EOF
     " 2>/dev/null
     
     echo "✅ Dashboard imported successfully!"
-    echo "🔍 Access at: http://$master_ip:30300"
+    echo "🔍 Access at: http://$master_ip:30300 (admin/admin)"
     echo "📊 Look for 'Caloguessr Scaling Demo Dashboard'"
 }
 
@@ -680,6 +688,278 @@ rollback_deployment() {
     echo "🎉 Rollback to version $target_version completed!"
 }
 
+# ========================================
+# 🗂️ BIG DATA FUNCTIONS (Aufgabe 4 & 5)
+# ========================================
+
+setup_datalake() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "🗂️ Setting up Data Lake (MinIO + Spark)"
+    echo "======================================="
+    
+    # --- Lokale Pfade zu den YAML-Dateien ---
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local spark_datalake_yaml="$script_dir/big-data/datalake.yaml"
+    if [ ! -f "$spark_datalake_yaml" ]; then
+        echo "❌ datalake.yaml nicht gefunden: $spark_datalake_yaml"
+        exit 1
+    fi
+    
+    # Kopiere YAML-Dateien auf Remote-Server
+    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$spark_datalake_yaml" ubuntu@$master_ip:/tmp/datalake.yaml
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '📦 Installing MinIO Data Lake...'
+        kubectl create namespace big-data || true
+        
+        # Apply YAML definitions from file
+        kubectl apply -f /tmp/datalake.yaml
+        
+        echo '⏳ Waiting for MinIO to be ready...'
+        kubectl wait --for=condition=Ready pod -l app=minio -n big-data --timeout=120s || echo 'MinIO taking longer than expected...'
+        
+        echo '📋 MinIO Status:'
+        kubectl get pods -n big-data -l app=minio
+        
+        echo '⏳ Waiting for MinIO setup job to complete...'
+        kubectl wait --for=condition=complete job/minio-setup-job -n big-data --timeout=180s || echo 'Setup job taking longer than expected...'
+        
+        echo '📋 Setup job logs:'
+        kubectl logs job/minio-setup-job -n big-data || echo 'Could not retrieve logs'
+        
+        echo '✅ Data Lake setup complete!'
+        echo 'MinIO Console: http://$master_ip:30901 (minioadmin/minioadmin123)'
+        echo '📂 Created buckets: raw-data, processed-data, ml-models, logs'
+        echo '📄 Sample files uploaded for demo purposes'
+        
+        echo '🧹 Cleaning up temp files...'
+        rm -f /tmp/datalake.yaml
+    "
+}
+
+run_batch_job() {
+    local job_name=$1
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    case $job_name in
+        "food-analysis")
+            echo "🍔 Running Food Calorie Analysis Job..."
+            run_food_analysis_job $master_ip $ssh_key
+            ;;
+        *)
+            echo "❌ Unknown job: $job_name"
+            echo "Available jobs: food-analysis"
+            exit 1
+            ;;
+    esac
+}
+
+run_food_analysis_job() {
+    local master_ip=$1
+    local ssh_key=$2
+    
+    # --- Lokale Pfade zu den Python-Dateien ---
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local ml_pipeline_py="$script_dir/big-data/ml-pipeline.py"
+    if [ ! -f "$ml_pipeline_py" ]; then
+        echo "❌ ml-pipeline.py nicht gefunden: $ml_pipeline_py"
+        exit 1
+    fi
+    
+    echo "📋 Using ML Pipeline from file: $ml_pipeline_py"
+    
+    # Kopiere Python-Datei auf Remote-Server
+    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$ml_pipeline_py" ubuntu@$master_ip:/tmp/ml-pipeline.py
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '🔥 Starting Food Analysis Job...'
+        
+        # Create ConfigMap with the ml-pipeline.py file
+        kubectl delete configmap food-analysis-code -n big-data 2>/dev/null || true
+        kubectl create configmap food-analysis-code \
+            --from-file=ml-pipeline.py=/tmp/ml-pipeline.py \
+            --namespace=big-data
+        
+        # Generiere einen einheitlichen Timestamp im Format YYYYMMDD-HHMMSS für Job und Dateien
+        JOB_TIMESTAMP=\$(date +%Y%m%d-%H%M%S)
+        echo '🕒 Using unified timestamp for job and files: '\$JOB_TIMESTAMP
+        
+        # Create ML Job Pod
+        kubectl apply -f - <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: food-calorie-analysis-\${JOB_TIMESTAMP}
+  namespace: big-data
+spec:
+  template:
+    spec:
+      containers:
+      - name: ml-pipeline
+        image: python:3.9-slim
+        command: ['/bin/bash']
+        args: ['-c', 'apt-get update -qq && apt-get install -y -qq wget curl && pip install --no-cache-dir --quiet pandas numpy scikit-learn requests && wget -q https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc && chmod +x /usr/local/bin/mc && python /app/ml-pipeline.py']
+        env:
+        - name: ML_JOB_TIMESTAMP
+          value: "\${JOB_TIMESTAMP}"
+        volumeMounts:
+        - name: ml-code
+          mountPath: /app
+        resources:
+          requests:
+            memory: '512Mi'
+            cpu: '250m'
+          limits:
+            memory: '1Gi'
+            cpu: '1'
+      volumes:
+      - name: ml-code
+        configMap:
+          name: food-analysis-code
+      restartPolicy: Never
+  backoffLimit: 3
+EOF
+
+        echo '🧹 Cleaning up temp files...'
+        rm -f /tmp/ml-pipeline.py
+
+        echo '📊 Job submitted! Check status with:'
+        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data'
+        echo '📋 View logs with:'
+        echo '   # Get job name first:'
+        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data'
+        echo '   # Then view logs (replace JOB_NAME with actual name):'
+        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl logs job/JOB_NAME -n big-data'
+    "
+}
+
+ml_pipeline() {
+    echo "🤖 Running ML Pipeline on Big Data"
+    echo "=================================="
+    
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    # --- Lokale Pfade zu den Python-Dateien ---
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local ml_pipeline_py="$script_dir/big-data/ml-pipeline.py"
+    if [ ! -f "$ml_pipeline_py" ]; then
+        echo "❌ ml-pipeline.py nicht gefunden: $ml_pipeline_py"
+        exit 1
+    fi
+    
+    echo "📋 Using ML Pipeline from file: $ml_pipeline_py"
+    
+    # Kopiere Python-Datei auf Remote-Server
+    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$ml_pipeline_py" ubuntu@$master_ip:/tmp/ml-pipeline.py
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '🧠 Creating ML Pipeline ConfigMap...'
+        
+        # Create/Update ConfigMap with the ml-pipeline.py file
+        kubectl delete configmap ml-pipeline-updated-code -n big-data 2>/dev/null || true
+        kubectl create configmap ml-pipeline-updated-code \
+            --from-file=ml-pipeline.py=/tmp/ml-pipeline.py \
+            --namespace=big-data
+        
+        echo '🧠 Starting ML Pipeline Job with updated code...'
+        
+        # Generiere einen einheitlichen Timestamp im Format YYYYMMDD-HHMMSS für Job und Dateien
+        JOB_TIMESTAMP=\$(date +%Y%m%d-%H%M%S)
+        echo '🕒 Using unified timestamp for job and files: '\$JOB_TIMESTAMP
+        
+        # Create ML Pipeline Job using the ConfigMap
+        kubectl apply -f - <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ml-food-pipeline-\${JOB_TIMESTAMP}
+  namespace: big-data
+spec:
+  template:
+    spec:
+      containers:
+      - name: ml-pipeline
+        image: python:3.9-slim
+        command: ['/bin/bash']
+        args: ['-c', 'apt-get update -qq && apt-get install -y -qq wget curl && pip install --no-cache-dir --quiet pandas numpy scikit-learn requests && wget -q https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc && chmod +x /usr/local/bin/mc && python /app/ml-pipeline.py']
+        env:
+        - name: ML_JOB_TIMESTAMP
+          value: "\${JOB_TIMESTAMP}"
+        volumeMounts:
+        - name: ml-code
+          mountPath: /app
+        resources:
+          requests:
+            memory: '512Mi'
+            cpu: '250m'
+          limits:
+            memory: '1Gi'
+            cpu: '1'
+      volumes:
+      - name: ml-code
+        configMap:
+          name: ml-pipeline-updated-code
+      restartPolicy: Never
+  backoffLimit: 3
+EOF
+
+        echo '🧹 Cleaning up temp files...'
+        rm -f /tmp/ml-pipeline.py
+        
+        echo '📊 ML Pipeline Job submitted!'
+        echo '📋 Check status with SSH:'
+        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data'
+        echo '📋 View logs with SSH:'
+        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl logs job/ml-food-pipeline-'"\$JOB_TIMESTAMP"' -n big-data'
+    "
+}
+
+# ========================================
+# 🧹 ML JOB MANAGEMENT FUNCTIONS 
+# ========================================
+
+cleanup_ml_jobs() {
+    echo "🧹 Cleaning up long-running ML jobs..."
+    
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '🗑️ Deleting all jobs in big-data namespace...'
+        kubectl delete jobs --all -n big-data
+        
+        echo '📊 Remaining jobs:'
+        kubectl get jobs -n big-data
+        
+        echo '✅ ML jobs cleanup completed!'
+    "
+}
+
+
 # Command handling
 case $1 in
     "deploy")
@@ -714,6 +994,19 @@ case $1 in
         ;;
     "cleanup")
         cleanup
+        ;;
+    # 🗂️ Big Data Commands (Aufgabe 4 & 5)
+    "setup-datalake")
+        setup_datalake
+        ;;
+    "run-batch-job")
+        run_batch_job $2
+        ;;
+    "ml-pipeline")
+        ml_pipeline
+        ;;
+    "cleanup-ml-jobs")
+        cleanup_ml_jobs
         ;;
     *)
         show_help

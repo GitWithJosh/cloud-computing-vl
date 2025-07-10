@@ -449,8 +449,17 @@ write_files:
           # Save image to tar file for distribution
           docker save caloguessr-app:latest -o /tmp/web/caloguessr-app.tar
           
-          # Import to local K3s
+          # Import to local K3s containerd (WICHTIG: Für Master-Node Scheduling)
           docker save caloguessr-app:latest | /usr/local/bin/k3s ctr images import - 2>/dev/null
+          
+          # Zusätzlich: Image auch für Docker verfügbar halten (falls Master als Worker verwendet wird)
+          echo "Image imported to K3s containerd on master" >> /tmp/app-deploy.log
+          
+          # Warten bis K3s bereit ist für Deployments
+          while ! kubectl get nodes > /dev/null 2>&1; do
+            echo "Waiting for K3s to be ready for deployments..." >> /tmp/app-deploy.log
+            sleep 5
+          done
           
           # Deploy app
           kubectl apply -f k8s-deployment.yaml 2>/dev/null
@@ -531,6 +540,10 @@ runcmd:
   
   # Quick wait for K3s
   - sleep 30
+  
+  # Remove master taint to allow pods to be scheduled on master (für ImagePullBackOff-Fix)
+  - /usr/local/bin/kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule- || true
+  - /usr/local/bin/kubectl taint nodes --all node-role.kubernetes.io/master:NoSchedule- || true
   
   # Setup kubectl for ubuntu user
   - mkdir -p /home/ubuntu/.kube

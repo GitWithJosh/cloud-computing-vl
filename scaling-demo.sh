@@ -14,7 +14,7 @@ echo "======================================"
 
 # Terraform Outputs laden
 MASTER_IP=$(terraform output -raw master_ip 2>/dev/null)
-SSH_KEY=$(grep "key_pair" terraform.tfvars | cut -d'"' -f2)
+SSH_KEY=$(grep "^key_pair" terraform.tfvars | cut -d'"' -f2)
 
 if [ -z "$MASTER_IP" ]; then
     echo -e "${RED}❌ Fehler: Kann Master IP nicht ermitteln${NC}"
@@ -58,7 +58,18 @@ check_monitoring_status() {
 check_cluster_status() {
     echo -e "${BLUE}📊 Cluster Status Check...${NC}"
     ssh -i ~/.ssh/$SSH_KEY -o StrictHostKeyChecking=no ubuntu@$MASTER_IP \
-        "kubectl get nodes && echo && kubectl get pods -o wide && echo && kubectl top pods --containers 2>/dev/null || echo 'Metrics not available yet'"
+        "kubectl get nodes && echo && kubectl get pods -o wide && echo && kubectl top pods --containers 2>/dev/null || echo 'Metrics not available yet'
+        echo
+        echo '=== Image Availability Check ==='
+        echo 'Images on Master:'
+        /usr/local/bin/k3s ctr images list | grep caloguessr || echo 'No caloguessr image found'
+        echo
+        echo 'Failed Pods Details:'
+        kubectl get pods | grep -E 'ImagePullBackOff|ErrImagePull' | while read pod rest; do
+            echo \"Pod: \$pod\"
+            kubectl describe pod \$pod | grep -A 3 -B 1 'Failed to pull image\|ImagePullBackOff\|ErrImagePull' || true
+            echo '---'
+        done"
 }
 
 install_metrics_server() {

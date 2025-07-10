@@ -1,0 +1,219 @@
+# 🗂️ Kubernetes Manifests für Big Data Stack
+# ==========================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: big-data
+---
+# MinIO Data Lake Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: big-data
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:latest
+        args:
+        - server
+        - /data
+        - --console-address
+        - :9090
+        env:
+        - name: MINIO_ROOT_USER
+          value: minioadmin
+        - name: MINIO_ROOT_PASSWORD
+          value: minioadmin123
+        ports:
+        - containerPort: 9000
+          name: api
+        - containerPort: 9090
+          name: console
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: big-data
+spec:
+  selector:
+    app: minio
+  ports:
+  - name: api
+    port: 9000
+    targetPort: 9000
+    nodePort: 30900
+  - name: console
+    port: 9090
+    targetPort: 9090
+    nodePort: 30901
+  type: NodePort
+---
+# Spark Operator ServiceAccount & RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark
+  namespace: big-data
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spark-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spark-role-binding
+subjects:
+- kind: ServiceAccount
+  name: spark
+  namespace: big-data
+roleRef:
+  kind: ClusterRole
+  name: spark-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-scripts
+  namespace: big-data
+data:
+  ml-pipeline.py: |
+    # ML Pipeline Script wird hier eingefügt
+    print("🤖 Food Calorie ML Pipeline starting...")
+    import sys
+    print(f"Python version: {sys.version}")
+    
+    # Placeholder - echtes Script würde hier stehen
+    import time
+    import random
+    
+    print("📊 Generating sample food data...")
+    time.sleep(5)
+    
+    foods = ['apple', 'banana', 'chicken', 'rice', 'broccoli']
+    for i in range(10):
+        food = random.choice(foods)
+        calories = random.randint(50, 300)
+        print(f"Processed: {food} -> {calories} calories")
+        time.sleep(1)
+    
+    print("✅ ML Pipeline completed!")
+---
+# MinIO Setup Job - Erstellt Buckets und Beispieldaten
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-setup-job
+  namespace: big-data
+spec:
+  template:
+    spec:
+      containers:
+      - name: minio-setup
+        image: minio/mc:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Configuring MinIO client..."
+          mc alias set myminio http://minio:9000 minioadmin minioadmin123
+          
+          echo "Creating buckets..."
+          mc mb myminio/raw-data || echo "Bucket raw-data already exists"
+          mc mb myminio/processed-data || echo "Bucket processed-data already exists"
+          mc mb myminio/ml-models || echo "Bucket ml-models already exists"
+          mc mb myminio/logs || echo "Bucket logs already exists"
+          
+          echo "Creating and uploading sample CSV data..."
+          cat > /tmp/test-data.csv << 'CSVEND'
+          food_item,weight_grams,calories,protein_g,carbs_g,fat_g
+          apple,100,52,0.3,14,0.2
+          banana,100,89,1.1,23,0.3
+          chicken_breast,100,165,31,0,3.6
+          rice_white,100,130,2.7,28,0.3
+          broccoli,100,25,3,5,0.3
+          pasta,100,131,5,25,1.1
+          salmon,100,208,20,0,12
+          beef_ground,100,250,26,0,15
+          potato,100,77,2,17,0.1
+          spinach,100,23,2.9,3.6,0.4
+          CSVEND
+          mc cp /tmp/test-data.csv myminio/raw-data/
+          
+          echo "Creating and uploading processed data..."
+          cat > /tmp/test-results.json << 'JSONEND'
+          {
+            "analysis_date": "2025-01-07T10:05:30Z",
+            "total_foods": 10,
+            "avg_calories": 145.0,
+            "high_protein_foods": ["chicken_breast", "salmon", "beef_ground"],
+            "low_calorie_foods": ["spinach", "broccoli", "apple"],
+            "data_source": "raw-data/test-data.csv"
+          }
+          JSONEND
+          mc cp /tmp/test-results.json myminio/processed-data/
+          
+          echo "Creating and uploading model file..."
+          echo "Random Forest Food Calorie Predictor v1.0 - Trained on food dataset" > /tmp/test-model.txt
+          mc cp /tmp/test-model.txt myminio/ml-models/
+          
+          echo "Creating and uploading log entries..."
+          cat > /tmp/test-pipeline.log << 'LOGEND'
+          2025-01-07 10:00:01 INFO: Data pipeline started
+          2025-01-07 10:00:15 INFO: Downloaded 1000 food samples
+          2025-01-07 10:01:30 INFO: Data cleaning completed
+          2025-01-07 10:02:45 INFO: Feature engineering completed
+          2025-01-07 10:05:20 INFO: Model training completed with R² = 0.89
+          2025-01-07 10:05:25 INFO: Model saved to ml-models/test-model.txt
+          2025-01-07 10:05:30 INFO: Data pipeline completed successfully
+          LOGEND
+          mc cp /tmp/test-pipeline.log myminio/logs/
+          
+          echo "Demo buckets and data created successfully!"
+          echo "Listing all buckets:"
+          mc ls myminio/
+          echo "Files in raw-data:"
+          mc ls myminio/raw-data/
+          echo "Files in processed-data:"
+          mc ls myminio/processed-data/
+          echo "Files in ml-models:"
+          mc ls myminio/ml-models/
+          echo "Files in logs:"
+          mc ls myminio/logs/
+      restartPolicy: Never
+  backoffLimit: 3
