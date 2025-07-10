@@ -30,7 +30,4 @@
 # 3. Status prüfen (SSH erforderlich)
 ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get pods -n big-data
 ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data
-
-# 4. Optional: Batch Job ausführen
-./version-manager.sh run-batch-job food-analysis
 ```
