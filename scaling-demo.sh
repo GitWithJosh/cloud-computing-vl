@@ -55,23 +55,6 @@ check_monitoring_status() {
         kubectl get pods -n monitoring -l app=kube-state-metrics"
 }
 
-check_cluster_status() {
-    echo -e "${BLUE}📊 Cluster Status Check...${NC}"
-    ssh -i ~/.ssh/$SSH_KEY -o StrictHostKeyChecking=no ubuntu@$MASTER_IP \
-        "kubectl get nodes && echo && kubectl get pods -o wide && echo && kubectl top pods --containers 2>/dev/null || echo 'Metrics not available yet'
-        echo
-        echo '=== Image Availability Check ==='
-        echo 'Images on Master:'
-        /usr/local/bin/k3s ctr images list | grep caloguessr || echo 'No caloguessr image found'
-        echo
-        echo 'Failed Pods Details:'
-        kubectl get pods | grep -E 'ImagePullBackOff|ErrImagePull' | while read pod rest; do
-            echo \"Pod: \$pod\"
-            kubectl describe pod \$pod | grep -A 3 -B 1 'Failed to pull image\|ImagePullBackOff\|ErrImagePull' || true
-            echo '---'
-        done"
-}
-
 install_metrics_server() {
     echo -e "${BLUE}📊 Checking Metrics Server...${NC}"
     ssh -i ~/.ssh/$SSH_KEY -o StrictHostKeyChecking=no ubuntu@$MASTER_IP \
@@ -159,10 +142,6 @@ monitor_scaling() {
 # Hauptdemonstration
 echo -e "${BLUE}1️⃣  Monitoring Stack Status${NC}"
 check_monitoring_status
-
-echo
-echo -e "${BLUE}2️⃣  Initial Cluster Status${NC}"
-check_cluster_status
 
 echo
 echo -e "${BLUE}3️⃣  Installing/Checking Metrics Server${NC}"
