@@ -155,35 +155,60 @@ write_files:
       if [ "$IMAGE_STATUS" = "ready" ]; then
         echo "Downloading Docker image..." >> /var/log/join-cluster.log
         
-        # Download with retry mechanism
-        for i in {1..3}; do
-          if curl -s http://$MASTER_IP:8080/caloguessr-app.tar -o /tmp/caloguessr-app.tar; then
-            echo "Download attempt $i successful" >> /var/log/join-cluster.log
-            break
+        # Verbesserte Download-Strategie mit erhöhter Zuverlässigkeit
+        MAX_DOWNLOAD_ATTEMPTS=5
+        for i in $(seq 1 $MAX_DOWNLOAD_ATTEMPTS); do
+          echo "Download-Versuch $i von $MAX_DOWNLOAD_ATTEMPTS..." >> /var/log/join-cluster.log
+          
+          if curl -s --connect-timeout 30 --max-time 300 http://$MASTER_IP:8080/caloguessr-app.tar -o /tmp/caloguessr-app.tar; then
+            # Überprüfe Dateigröße (mindestens 10 MB erwartet)
+            SIZE=$(stat -c %s /tmp/caloguessr-app.tar 2>/dev/null || stat -f %z /tmp/caloguessr-app.tar)
+            if [ "$SIZE" -gt 10000000 ]; then
+              echo "Download erfolgreich (Größe: $SIZE bytes)" >> /var/log/join-cluster.log
+              break
+            else
+              echo "Heruntergeladene Datei zu klein ($SIZE bytes), versuche erneut" >> /var/log/join-cluster.log
+              rm -f /tmp/caloguessr-app.tar
+            fi
           else
-            echo "Download attempt $i failed" >> /var/log/join-cluster.log
-            sleep 10
+            echo "Download-Versuch $i fehlgeschlagen" >> /var/log/join-cluster.log
           fi
+          
+          # Exponentielles Backoff für Wiederholungsversuche
+          sleep $((5 * i))
         done
         
         if [ -f /tmp/caloguessr-app.tar ] && [ -s /tmp/caloguessr-app.tar ]; then
           echo "Loading Docker image..." >> /var/log/join-cluster.log
           
+          # Erst in Docker laden
           if docker load -i /tmp/caloguessr-app.tar; then
             echo "Docker image loaded successfully" >> /var/log/join-cluster.log
             
-            # Import to K3s containerd
-            if docker save caloguessr-app:latest | /usr/local/bin/k3s ctr images import -; then
-              echo "Docker image successfully imported to K3s" >> /var/log/join-cluster.log
+            # Dann in K3s containerd importieren (mehrere Versuche)
+            for i in {1..3}; do
+              echo "Import-Versuch $i in k3s containerd..." >> /var/log/join-cluster.log
+              if docker save caloguessr-app:latest | /usr/local/bin/k3s ctr images import -; then
+                echo "Docker image successfully imported to K3s (Versuch $i)" >> /var/log/join-cluster.log
+                break
+              else
+                echo "Failed to import image to K3s (Versuch $i)" >> /var/log/join-cluster.log
+                sleep 10
+              fi
+            done
+            
+            # Verifizieren, dass das Image tatsächlich importiert wurde
+            if /usr/local/bin/k3s ctr images list | grep -q caloguessr-app; then
+              echo "Image erfolgreich in k3s containerd verifiziert" >> /var/log/join-cluster.log
             else
-              echo "Failed to import image to K3s" >> /var/log/join-cluster.log
+              echo "WARNUNG: Image scheint nicht in k3s containerd vorhanden zu sein!" >> /var/log/join-cluster.log
             fi
           else
             echo "Failed to load Docker image" >> /var/log/join-cluster.log
           fi
           
-          # Cleanup
-          rm /tmp/caloguessr-app.tar
+          # Backup-Kopie für Fehlerbehebung aufbewahren
+          mv /tmp/caloguessr-app.tar /var/lib/caloguessr-app.tar.backup
         else
           echo "Downloaded image file is empty or missing" >> /var/log/join-cluster.log
         fi

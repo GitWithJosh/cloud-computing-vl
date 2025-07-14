@@ -449,8 +449,28 @@ write_files:
           # Save image to tar file for distribution
           docker save caloguessr-app:latest -o /tmp/web/caloguessr-app.tar
           
+          # Warten bis k3s vollständig initialisiert ist
+          echo "Warte auf vollständige k3s Initialisierung vor dem Import..." >> /tmp/app-deploy.log
+          sleep 30
+          
           # Import to local K3s containerd (WICHTIG: Für Master-Node Scheduling)
-          docker save caloguessr-app:latest | /usr/local/bin/k3s ctr images import - 2>/dev/null
+          # Mit verbessertem Import und Fehlerbehandlung
+          echo "Importiere Image in k3s containerd..." >> /tmp/app-deploy.log
+          if docker save caloguessr-app:latest | /usr/local/bin/k3s ctr images import -; then
+            echo "Image erfolgreich in k3s containerd importiert" >> /tmp/app-deploy.log
+          else
+            echo "Fehler beim Import des Images in k3s containerd, versuche es erneut..." >> /tmp/app-deploy.log
+            # Zweiter Versuch nach kurzer Wartezeit
+            sleep 15
+            docker save caloguessr-app:latest | /usr/local/bin/k3s ctr images import -
+          fi
+          
+          # Prüfen, ob das Image wirklich importiert wurde
+          if /usr/local/bin/k3s ctr images list | grep -q caloguessr-app; then
+            echo "Image erfolgreich in k3s containerd verifiziert" >> /tmp/app-deploy.log
+          else
+            echo "WARNUNG: Image scheint nicht in k3s containerd vorhanden zu sein!" >> /tmp/app-deploy.log
+          fi
           
           # Zusätzlich: Image auch für Docker verfügbar halten (falls Master als Worker verwendet wird)
           echo "Image imported to K3s containerd on master" >> /tmp/app-deploy.log
@@ -561,6 +581,42 @@ runcmd:
   
   # Start auto role assignment service
   - nohup /root/auto-assign-worker-roles.sh > /dev/null 2>&1 &
+  
+  # Zusätzliche Image-Verifizierung - prüft und behebt das ImagePullBackOff Problem
+  - |
+    (
+      # Warten auf initiale App-Deployment
+      sleep 120
+      echo "Führe Image-Verifizierung für Master-Node durch..." >> /var/log/image-verification.log
+      
+      # Überprüfen, ob das Image im containerd vorhanden ist
+      if ! /usr/local/bin/k3s ctr images list | grep -q caloguessr-app; then
+        echo "Image nicht in containerd gefunden, versuche Import..." >> /var/log/image-verification.log
+        
+        if [ -f /tmp/web/caloguessr-app.tar ]; then
+          echo "Importiere aus lokaler tar-Datei..." >> /var/log/image-verification.log
+          /usr/local/bin/k3s ctr images import /tmp/web/caloguessr-app.tar
+        else
+          echo "Exportiere aus Docker und importiere in containerd..." >> /var/log/image-verification.log
+          docker save caloguessr-app:latest | /usr/local/bin/k3s ctr images import -
+        fi
+      else
+        echo "Image bereits in containerd vorhanden" >> /var/log/image-verification.log
+      fi
+      
+      # Überprüfe, ob Pods mit ImagePullBackOff vorhanden sind
+      FAILING_PODS=$(/usr/local/bin/kubectl get pods -l app=caloguessr -o json | jq '.items[] | select(.status.phase != "Running" or .status.containerStatuses[0].ready != true) | .metadata.name' -r)
+      
+      if [ ! -z "$FAILING_PODS" ]; then
+        echo "Gefundene Pods mit Problemen: $FAILING_PODS" >> /var/log/image-verification.log
+        echo "Lösche problematische Pods für Neuerstellung..." >> /var/log/image-verification.log
+        
+        for POD in $FAILING_PODS; do
+          /usr/local/bin/kubectl delete pod $POD
+          echo "Pod $POD gelöscht" >> /var/log/image-verification.log
+        done
+      fi
+    ) &
   
   # Signal completion
   - echo "Master setup completed at $(date)" > /tmp/setup-complete.log
