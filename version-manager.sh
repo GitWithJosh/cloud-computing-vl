@@ -547,7 +547,7 @@ zero_downtime_deploy() {
     
     # Health check on green environment
     echo "Health checking Green environment..."
-    local health_check_retries=10
+    local health_check_retries=20
     local new_cluster_healthy=false
     
     for i in $(seq 1 $health_check_retries); do
