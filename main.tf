@@ -21,12 +21,11 @@ data "local_file" "ssh_public_key" {
   filename = pathexpand("~/.ssh/${var.key_pair}.pub")
 }
 
-# Random ID for unique resource naming (only needed for default workspace)
+# Random ID for unique resource naming (always created)
 resource "random_id" "deployment" {
-  count       = terraform.workspace == "default" ? 1 : 0
   byte_length = 4
   
-  # Ensure this changes on each default workspace deployment
+  # Ensure this is unique for each deployment
   keepers = {
     timestamp = timestamp()
   }
@@ -34,10 +33,8 @@ resource "random_id" "deployment" {
 
 # Local values for unique naming
 locals {
-  # Use workspace name for deployment ID, with fallback to random ID for default workspace
-  deployment_id = terraform.workspace != "default" ? terraform.workspace : (
-    length(random_id.deployment) > 0 ? random_id.deployment[0].hex : "default"
-  )
+  # Always use random ID for deployment ID (workspace-independent)
+  deployment_id = random_id.deployment.hex
   
   # Ensure unique naming across environments
   name_prefix = "k8s-${local.deployment_id}"

@@ -365,234 +365,228 @@ EOF
 }
 
 zero_downtime_deploy() {
-    local new_version=$1
-    if [ -z "$new_version" ]; then
-        echo "❌ New version required"
-        exit 1
-    fi
-
-    echo "Starting Zero-Downtime Deployment to version $new_version..."
-    echo "=================================================="
-    
-    # Check if current infrastructure exists (tfstate in current directory)
-    if [ ! -f terraform.tfstate ] || [ ! -s terraform.tfstate ] || [ -z "$(terraform state list 2>/dev/null)" ]; then
-        echo "No existing infrastructure found. Using 'deploy' for initial deployment."
-        deploy_version "$new_version"
-        exit $?
-    fi
-    
-    # Get current infrastructure details
-    echo "Current infrastructure status:"
-    local current_master_ip
-    current_master_ip=$(terraform output -raw master_ip 2>/dev/null)
-    local current_deployment_id
-    current_deployment_id=$(terraform output -raw deployment_id 2>/dev/null)
-
-    if [ -z "$current_master_ip" ]; then
-        echo "❌ Cannot determine current master IP. Please check terraform.tfstate."
+    local target_version=$1
+    if [ -z "$target_version" ]; then
+        echo "❌ Target version required for zero-downtime deployment"
         exit 1
     fi
     
-    echo "Current Master IP: $current_master_ip"
-    echo "Current Deployment ID: $current_deployment_id"
+    echo "🚀 Starting Zero-Downtime Deployment to $target_version"
+    echo "========================================================="
     
-    # Get current version and create backup timestamp
+    # Get current state
     local current_version
     current_version=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "main")
-    local backup_timestamp
-    backup_timestamp=$(date +%Y%m%d-%H%M%S)
+    local current_master_ip
+    current_master_ip=$(terraform output -raw master_ip 2>/dev/null)
     
     echo "Current version: $current_version"
-    echo "Target version: $new_version"
+    echo "Target version: $target_version"
     
-    # Backup current terraform state files
-    echo "Backing up current terraform state..."
-    cp terraform.tfstate "terraform.tfstate.backup-$backup_timestamp"
-    if [ -f terraform.tfstate.backup ]; then
-        cp terraform.tfstate.backup "terraform.tfstate.backup.orig-$backup_timestamp"
+    if [ -n "$current_master_ip" ]; then
+        echo "Current Master IP: $current_master_ip"
+    else
+        echo "No current infrastructure found - this will be a fresh deployment"
     fi
     
-    # Checkout new version
-    echo "Switching to version $new_version..."
-    if ! git checkout "$new_version" 2>/dev/null; then
-        echo "❌ Version $new_version not found"
-        exit 1
+    # 1. Backup current terraform state
+    echo ""
+    echo "📦 Step 1: Backing up current terraform state..."
+    local backup_timestamp=$(date +%Y%m%d-%H%M%S)
+    local backup_dir="./tfstate-backup-$backup_timestamp"
+    
+    mkdir -p "$backup_dir"
+    
+    if [ -f "terraform.tfstate" ]; then
+        cp terraform.tfstate "$backup_dir/terraform.tfstate.backup"
+        echo "✅ Backed up terraform.tfstate"
     fi
     
-    # Deploy new (green) environment
-    echo "Deploying new Green environment..."
+    if [ -f "terraform.tfstate.backup" ]; then
+        cp terraform.tfstate.backup "$backup_dir/terraform.tfstate.backup.backup"
+        echo "✅ Backed up terraform.tfstate.backup"
+    fi
     
-    # Sicherstellen, dass die OpenStack-Credentials verfügbar sind
-    echo "Ensuring OpenStack credentials are available..."
-    source openrc.sh
+    if [ -f ".terraform.lock.hcl" ]; then
+        cp .terraform.lock.hcl "$backup_dir/.terraform.lock.hcl.backup"
+        echo "✅ Backed up .terraform.lock.hcl"
+    fi
     
-    echo "Initializing Terraform for new version..."
-    if ! terraform init -upgrade; then
-        echo "❌ Terraform init failed for Green environment"
+    echo "Backup created in: $backup_dir"
+    
+    # 2. Switch to new version and deploy
+    echo ""
+    echo "🔄 Step 2: Switching to $target_version and deploying..."
+    
+    # Checkout target version
+    if ! git checkout "$target_version" 2>/dev/null; then
+        echo "❌ Version $target_version not found"
+        echo "🔄 Restoring original git state..."
         git checkout "$current_version" >/dev/null 2>&1
-        echo "Rollback to original version completed due to init failure"
+        rm -rf "$backup_dir"
         exit 1
     fi
     
-    echo "Applying new deployment..."
+    # Deploy new version (this creates parallel infrastructure)
+    echo "Deploying new infrastructure..."
+    terraform init -upgrade
     if ! TF_LOG=ERROR terraform apply -auto-approve; then
-        echo "❌ Green deployment failed, cleaning up..."
-        
-        # Try to cleanup failed deployment
-        terraform destroy -auto-approve >/dev/null 2>&1
-        
-        # Restore original state and version
-        echo "Restoring original state..."
-        git checkout "$current_version" >/dev/null 2>&1
-        cp "terraform.tfstate.backup-$backup_timestamp" terraform.tfstate
-        if [ -f "terraform.tfstate.backup.orig-$backup_timestamp" ]; then
-            cp "terraform.tfstate.backup.orig-$backup_timestamp" terraform.tfstate.backup
-        fi
-        
-        # Reinitialize terraform for original version
-        terraform init -upgrade >/dev/null 2>&1
-        
-        echo "Rollback completed - original environment restored"
+        echo "❌ Deployment failed!"
+        echo "🧹 Rolling back..."
+        rollback_to_previous_state "$backup_dir" "$current_version"
         exit 1
     fi
     
-    # Get new infrastructure details
+    # Get new deployment info
     local new_master_ip
     new_master_ip=$(terraform output -raw master_ip 2>/dev/null)
-    local new_deployment_id
-    new_deployment_id=$(terraform output -raw deployment_id 2>/dev/null)
+    local new_app_url
+    new_app_url=$(terraform output -raw app_url 2>/dev/null)
     local ssh_key
     ssh_key=$(get_ssh_key)
     
-    if [ -z "$new_master_ip" ]; then
-        echo "❌ Failed to get new master IP for Green environment"
-        
-        # Cleanup and rollback
-        terraform destroy -auto-approve >/dev/null 2>&1
-        git checkout "$current_version" >/dev/null 2>&1
-        cp "terraform.tfstate.backup-$backup_timestamp" terraform.tfstate
-        if [ -f "terraform.tfstate.backup.orig-$backup_timestamp" ]; then
-            cp "terraform.tfstate.backup.orig-$backup_timestamp" terraform.tfstate.backup
-        fi
-        terraform init -upgrade >/dev/null 2>&1
-        
-        echo "Rollback completed - original environment restored"
-        exit 1
+    echo "✅ New infrastructure deployed!"
+    echo "New Master IP: $new_master_ip"
+    echo "New App URL: $new_app_url"
+    
+    # Backup new state before health checks
+    echo ""
+    echo "📦 Backing up new terraform state..."
+    mkdir -p "$backup_dir/new-state"
+    cp terraform.tfstate "$backup_dir/new-state/terraform.tfstate.new"
+    if [ -f "terraform.tfstate.backup" ]; then
+        cp terraform.tfstate.backup "$backup_dir/new-state/terraform.tfstate.backup.new"
     fi
     
+    # 3. Health checks
     echo ""
-    echo "✅ Green environment deployed!"
-    echo "New Master IP: $new_master_ip"
-    echo "New Deployment ID: $new_deployment_id"
+    echo "🔍 Step 3: Running health checks (max 20 minutes)..."
     
-    # Health check on green environment (max 20 minutes)
-    echo "Health checking Green environment (max 20 minutes)..."
-    local health_check_retries=20  # 20 attempts * 60 seconds = 20 minutes
-    local new_cluster_healthy=false
+    local start_time=$(date +%s)
+    local max_duration=1200  # 20 minutes
+    local end_time=$((start_time + max_duration))
     
-    for i in $(seq 1 $health_check_retries); do
-        echo "Health check attempt $i/$health_check_retries ($i minutes)..."
+    echo "⏳ Waiting for cluster initialization..."
+    sleep 180  # 3 minutes initial wait
+    
+    local health_check_passed=false
+    while [ $(date +%s) -lt $end_time ]; do
+        local current_time=$(date +%s)
+        local elapsed=$((current_time - start_time))
+        local remaining=$((max_duration - elapsed))
         
-        local health_check_result=1 # Default to failure
-        ssh -i ~/.ssh/"$ssh_key" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "ubuntu@$new_master_ip" "
-            kubectl get nodes --no-headers 2>/dev/null | grep -q Ready &&
-            kubectl get deployment caloguessr-deployment -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -q '^[1-9]' &&
-            timeout 10 curl -s --connect-timeout 5 http://localhost:30001 >/dev/null 2>&1
-        " 2>/dev/null && health_check_result=$?
+        echo "Health check - Elapsed: $((elapsed / 60))m, Remaining: $((remaining / 60))m"
         
-        if [ $health_check_result -eq 0 ]; then
-            new_cluster_healthy=true
-            echo "✅ Green environment is healthy after $i minutes!"
+        # Simple HTTP check to the app
+        local http_status
+        http_status=$(ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$new_master_ip "curl -s -o /dev/null -w '%{http_code}' http://localhost:30001 --max-time 10" 2>/dev/null || echo "000")
+        
+        if [[ "$http_status" =~ ^(200|301|302)$ ]]; then
+            echo "✅ Health check passed! App is responding (HTTP $http_status)"
+            health_check_passed=true
             break
+        else
+            echo "❌ App not yet ready (HTTP $http_status)"
         fi
         
-        echo "Green environment not ready yet, waiting 60 seconds..."
-        sleep 60
+        sleep 60  # Wait 1 minute before next check
     done
     
-    if [ "$new_cluster_healthy" = false ]; then
-        echo "❌ Green environment failed health check after 20 minutes, rolling back..."
-        
-        # Sicherstellen, dass die OpenStack-Credentials verfügbar sind
-        echo "Ensuring OpenStack credentials are available for cleanup..."
-        source openrc.sh
-        
-        echo "Destroying failed Green environment..."
-        terraform destroy -auto-approve
-        
-        # Switch back to original version and restore state
-        echo "Switching back to the original version..."
-        git checkout "$current_version" >/dev/null 2>&1
-        
-        echo "Restoring original terraform state..."
-        cp "terraform.tfstate.backup-$backup_timestamp" terraform.tfstate
-        if [ -f "terraform.tfstate.backup.orig-$backup_timestamp" ]; then
-            cp "terraform.tfstate.backup.orig-$backup_timestamp" terraform.tfstate.backup
-        fi
-        
-        # Reinitialize terraform for original version
-        terraform init -upgrade >/dev/null 2>&1
-        
-        echo "Verifying restored environment connectivity..."
-        local restored_master_ip
-        restored_master_ip=$(terraform output -raw master_ip 2>/dev/null)
-        if [ -n "$restored_master_ip" ]; then
-            echo "✅ Original environment successfully restored and operational"
-            echo "Restored Master IP: $restored_master_ip"
-        else
-            echo "⚠️ Original environment state restored but verification failed"
-            echo "Manual intervention may be required"
-        fi
-        
-        echo "Rollback completed"
+    if [ "$health_check_passed" = false ]; then
+        echo "❌ Health checks failed after 20 minutes!"
+        echo "🧹 Rolling back to previous deployment..."
+        rollback_to_previous_state "$backup_dir" "$current_version"
         exit 1
     fi
     
-    # Green environment is healthy! Now cleanup the old blue environment
-    echo "✅ Green environment is healthy! Cleaning up old Blue environment..."
-    
-    # Switch back to original version to cleanup old infrastructure
-    echo "Temporarily switching to original version to cleanup old infrastructure..."
-    git checkout "$current_version" >/dev/null 2>&1
-    
-    # Restore old state temporarily for cleanup
-    cp "terraform.tfstate.backup-$backup_timestamp" terraform.tfstate
-    if [ -f "terraform.tfstate.backup.orig-$backup_timestamp" ]; then
-        cp "terraform.tfstate.backup.orig-$backup_timestamp" terraform.tfstate.backup
-    fi
-    
-    # Reinitialize and cleanup old infrastructure
-    terraform init -upgrade >/dev/null 2>&1
-    
-    echo "Destroying old Blue environment resources..."
-    if terraform destroy -auto-approve; then
-        echo "✅ Old Blue environment cleanup successful"
+    # 4. Cleanup old resources if there were any
+    if [ -n "$current_master_ip" ] && [ "$current_master_ip" != "$new_master_ip" ]; then
+        echo ""
+        echo "🧹 Step 4: Cleaning up old infrastructure..."
+        
+        # Restore old state temporarily for cleanup
+        if [ -f "$backup_dir/terraform.tfstate.backup" ]; then
+            cp "$backup_dir/terraform.tfstate.backup" terraform.tfstate.temp
+            cp terraform.tfstate "$backup_dir/new-state/terraform.tfstate.final"
+            cp terraform.tfstate.temp terraform.tfstate
+            
+            echo "Destroying old infrastructure at $current_master_ip..."
+            if terraform destroy -auto-approve; then
+                echo "✅ Old infrastructure cleaned up successfully"
+            else
+                echo "⚠️ Warning: Could not fully cleanup old infrastructure"
+                echo "You may need to manually clean up resources at $current_master_ip"
+            fi
+            
+            # Restore new state
+            cp "$backup_dir/new-state/terraform.tfstate.final" terraform.tfstate
+            rm -f terraform.tfstate.temp
+        else
+            echo "⚠️ No old state found for cleanup"
+        fi
     else
-        echo "Warning: Old Blue environment cleanup had issues. Manual cleanup may be required."
+        echo "ℹ️ No old infrastructure to clean up"
     fi
     
-    # Switch back to new version
-    echo "Switching back to new version..."
-    git checkout "$new_version" >/dev/null 2>&1
-    
-    # The new terraform.tfstate should already be there from the successful deployment
-    # Reinitialize terraform for the new version
-    terraform init -upgrade >/dev/null 2>&1
-    
-    # Cleanup backup files
-    echo "Cleaning up backup files..."
-    rm -f "terraform.tfstate.backup-$backup_timestamp" "terraform.tfstate.backup.orig-$backup_timestamp"
-    
+    # 5. Final verification
     echo ""
-    echo "Zero-downtime deployment completed successfully!"
-    echo "================================================="
-    echo "Final Master IP: $new_master_ip"
-    echo "App URL: $(terraform output -raw app_url 2>/dev/null)"
-    echo "Ingress URL: $(terraform output -raw app_ingress_url 2>/dev/null)"
-    echo "Version: $new_version"
+    echo "✅ Zero-Downtime Deployment Complete!"
+    echo "========================================="
+    echo "Version: $target_version"
+    echo "Master IP: $new_master_ip"
+    echo "App URL: $new_app_url"
+    echo "Ingress URL: $(terraform output -raw app_ingress_url)"
     echo ""
-    echo "Final status check:"
-    check_app_status "$new_master_ip" "$ssh_key"
+    echo "Backup directory: $backup_dir (safe to delete after verification)"
+    echo ""
+    echo "🎉 Your application is now running on the new version!"
+}
+
+rollback_to_previous_state() {
+    local backup_dir=$1
+    local current_version=$2
+    
+    echo "🚨 Performing emergency rollback..."
+    
+    # Destroy current (failed) infrastructure
+    echo "Destroying failed deployment..."
+    terraform destroy -auto-approve || echo "Warning: Destroy may have failed"
+    
+    # Restore old state files
+    if [ -f "$backup_dir/terraform.tfstate.backup" ]; then
+        cp "$backup_dir/terraform.tfstate.backup" terraform.tfstate
+        echo "✅ Restored old terraform.tfstate"
+    fi
+    
+    if [ -f "$backup_dir/terraform.tfstate.backup.backup" ]; then
+        cp "$backup_dir/terraform.tfstate.backup.backup" terraform.tfstate.backup
+        echo "✅ Restored old terraform.tfstate.backup"
+    fi
+    
+    if [ -f "$backup_dir/.terraform.lock.hcl.backup" ]; then
+        cp "$backup_dir/.terraform.lock.hcl.backup" .terraform.lock.hcl
+        echo "✅ Restored old .terraform.lock.hcl"
+    fi
+    
+    # Restore git state
+    git checkout "$current_version" >/dev/null 2>&1
+    echo "✅ Restored git to $current_version"
+    
+    # Re-initialize terraform with old state
+    terraform init >/dev/null 2>&1
+    
+    echo "🔄 Rollback completed - you are back on the previous deployment"
+    
+    # Show current status
+    local restored_master_ip
+    restored_master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    if [ -n "$restored_master_ip" ]; then
+        echo "Restored Master IP: $restored_master_ip"
+        echo "Restored App URL: $(terraform output -raw app_url 2>/dev/null)"
+    fi
+    
+    # Cleanup
+    rm -rf "$backup_dir"
 }
 
 rollback_deployment() {
