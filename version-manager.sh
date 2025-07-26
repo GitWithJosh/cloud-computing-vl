@@ -50,73 +50,6 @@ show_help() {
     echo "  $0 start-stream"
 }
 
-# Robuste Terraform Workspace Management Funktion
-safe_workspace_delete() {
-    local workspace_name=$1
-    local current_workspace
-    current_workspace=$(terraform workspace show 2>/dev/null)
-    
-    if [ -z "$workspace_name" ]; then
-        echo "No workspace name provided for deletion"
-        return 1
-    fi
-    
-    # Prüfe ob Workspace existiert
-    if ! terraform workspace list 2>/dev/null | grep -q -E "^\s*${workspace_name}$|^\*\s*${workspace_name}$"; then
-        echo "Workspace '$workspace_name' does not exist, skipping deletion"
-        return 0
-    fi
-    
-    # Prüfe ob wir in der zu löschenden Workspace sind
-    if [ "$current_workspace" = "$workspace_name" ]; then
-        echo "Switching away from workspace '$workspace_name' before deletion..."
-        if ! terraform workspace select default 2>/dev/null; then
-            echo "❌ Could not switch to default workspace, which is required to delete '$workspace_name'"
-            return 1
-        fi
-    fi
-    
-    # Lösche Workspace
-    echo "Deleting workspace '$workspace_name'..."
-    if terraform workspace delete "$workspace_name" 2>/dev/null; then
-        echo "✅ Workspace '$workspace_name' deleted successfully"
-        return 0
-    else
-        echo "Could not delete workspace '$workspace_name'. It might not be empty."
-        echo "   Attempting to destroy resources in '$workspace_name' before deleting again."
-        
-        # Temporär zum Workspace wechseln, um 'destroy' auszuführen
-        if ! terraform workspace select "$workspace_name" 2>/dev/null; then
-            echo "❌ Could not switch to workspace '$workspace_name' to destroy it."
-            terraform workspace select default >/dev/null 2>&1
-            return 1
-        fi
-
-        # Zerstöre die Ressourcen in diesem Workspace
-        if ! terraform destroy -auto-approve > /dev/null 2>&1; then
-            echo "❌ Failed to destroy resources in '$workspace_name'. Manual cleanup required."
-            terraform workspace select default >/dev/null 2>&1
-            return 1
-        fi
-        
-        echo "✅ Resources in '$workspace_name' destroyed."
-        
-        # Zurück zum Default-Workspace und erneut versuchen zu löschen
-        if ! terraform workspace select default 2>/dev/null; then
-            echo "❌ Could not switch back to default workspace after destroying '$workspace_name'."
-            return 1
-        fi
-        
-        echo "Retrying to delete workspace '$workspace_name'..."
-        if terraform workspace delete "$workspace_name" 2>/dev/null; then
-            echo "✅ Workspace '$workspace_name' deleted successfully on second attempt."
-            return 0
-        else
-            echo "❌ Failed to delete workspace '$workspace_name' even after destroying resources. Manual cleanup required."
-            return 1
-        fi
-    fi
-}
 
 deploy_version() {
     local version=$1
@@ -440,85 +373,86 @@ zero_downtime_deploy() {
 
     echo "Starting Zero-Downtime Deployment to version $new_version..."
     echo "=================================================="
-
-    # Sicherstellen, dass der 'default' Workspace existiert
-    if ! terraform workspace list 2>/dev/null | grep -q 'default'; then
-        terraform workspace new default >/dev/null 2>&1
-    fi
-    terraform workspace select default >/dev/null 2>&1
     
-    # Check if current infrastructure exists
+    # Check if current infrastructure exists (tfstate in current directory)
     if [ ! -f terraform.tfstate ] || [ ! -s terraform.tfstate ] || [ -z "$(terraform state list 2>/dev/null)" ]; then
-        echo "No existing infrastructure found in 'default' workspace. Using 'deploy' for initial deployment."
+        echo "No existing infrastructure found. Using 'deploy' for initial deployment."
         deploy_version "$new_version"
         exit $?
     fi
     
     # Get current infrastructure details
-    echo "Current infrastructure status (Workspace: default):"
+    echo "Current infrastructure status:"
     local current_master_ip
     current_master_ip=$(terraform output -raw master_ip 2>/dev/null)
     local current_deployment_id
     current_deployment_id=$(terraform output -raw deployment_id 2>/dev/null)
 
     if [ -z "$current_master_ip" ]; then
-        echo "❌ Cannot determine current master IP from 'default' workspace. Please check the state."
+        echo "❌ Cannot determine current master IP. Please check terraform.tfstate."
         exit 1
     fi
     
     echo "Current Master IP: $current_master_ip"
     echo "Current Deployment ID: $current_deployment_id"
     
-    # Get current version and create backup
+    # Get current version and create backup timestamp
     local current_version
     current_version=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "main")
     local backup_timestamp
     backup_timestamp=$(date +%Y%m%d-%H%M%S)
-    local blue_workspace="blue-$backup_timestamp"
-    local green_workspace="green-$backup_timestamp"
     
     echo "Current version: $current_version"
     echo "Target version: $new_version"
     
-    # Rename 'default' workspace to 'blue' to preserve it
-    echo "Renaming 'default' workspace to '$blue_workspace' to preserve the current Blue environment."
-    if ! terraform workspace new "$blue_workspace" 2>/dev/null; then
-        echo "❌ Failed to create backup workspace '$blue_workspace'."
-        exit 1
+    # Backup current terraform state files
+    echo "Backing up current terraform state..."
+    cp terraform.tfstate "terraform.tfstate.backup-$backup_timestamp"
+    if [ -f terraform.tfstate.backup ]; then
+        cp terraform.tfstate.backup "terraform.tfstate.backup.orig-$backup_timestamp"
     fi
-    cp terraform.tfstate.d/default/terraform.tfstate "terraform.tfstate.d/$blue_workspace/terraform.tfstate"
-    terraform workspace select default >/dev/null 2>&1
-    # Empty the default state
-    rm terraform.tfstate 2>/dev/null || true
-
-
+    
     # Checkout new version
     echo "Switching to version $new_version..."
     if ! git checkout "$new_version" 2>/dev/null; then
         echo "❌ Version $new_version not found"
-        # Rollback workspace rename
-        safe_workspace_delete "$blue_workspace"
         exit 1
     fi
     
-    # Create and deploy green environment in the 'default' workspace
-    echo "Creating Green environment in 'default' workspace..."
+    # Deploy new (green) environment
+    echo "Deploying new Green environment..."
     
-    terraform init -upgrade > /dev/null 2>&1 || {
+    # Sicherstellen, dass die OpenStack-Credentials verfügbar sind
+    echo "Ensuring OpenStack credentials are available..."
+    source openrc.sh
+    
+    echo "Initializing Terraform for new version..."
+    if ! terraform init -upgrade; then
         echo "❌ Terraform init failed for Green environment"
         git checkout "$current_version" >/dev/null 2>&1
-        safe_workspace_delete "$blue_workspace"
+        echo "Rollback to original version completed due to init failure"
         exit 1
-    }
+    fi
     
+    echo "Applying new deployment..."
     if ! TF_LOG=ERROR terraform apply -auto-approve; then
         echo "❌ Green deployment failed, cleaning up..."
-        terraform destroy -auto-approve >/dev/null 2>&1 # Cleanup failed green deployment
+        
+        # Try to cleanup failed deployment
+        terraform destroy -auto-approve >/dev/null 2>&1
+        
+        # Restore original state and version
+        echo "Restoring original state..."
         git checkout "$current_version" >/dev/null 2>&1
-        # Restore blue workspace
-        echo "Restoring Blue environment..."
-        mv "terraform.tfstate.d/$blue_workspace/terraform.tfstate" "terraform.tfstate.d/default/terraform.tfstate"
-        safe_workspace_delete "$blue_workspace"
+        cp "terraform.tfstate.backup-$backup_timestamp" terraform.tfstate
+        if [ -f "terraform.tfstate.backup.orig-$backup_timestamp" ]; then
+            cp "terraform.tfstate.backup.orig-$backup_timestamp" terraform.tfstate.backup
+        fi
+        
+        # Reinitialize terraform for original version
+        terraform init -upgrade >/dev/null 2>&1
+        
+        echo "Rollback completed - original environment restored"
         exit 1
     fi
     
@@ -532,11 +466,17 @@ zero_downtime_deploy() {
     
     if [ -z "$new_master_ip" ]; then
         echo "❌ Failed to get new master IP for Green environment"
-        terraform destroy -auto-approve > /dev/null 2>&1
+        
+        # Cleanup and rollback
+        terraform destroy -auto-approve >/dev/null 2>&1
         git checkout "$current_version" >/dev/null 2>&1
-        # Restore blue workspace
-        mv "terraform.tfstate.d/$blue_workspace/terraform.tfstate" "terraform.tfstate.d/default/terraform.tfstate"
-        safe_workspace_delete "$blue_workspace"
+        cp "terraform.tfstate.backup-$backup_timestamp" terraform.tfstate
+        if [ -f "terraform.tfstate.backup.orig-$backup_timestamp" ]; then
+            cp "terraform.tfstate.backup.orig-$backup_timestamp" terraform.tfstate.backup
+        fi
+        terraform init -upgrade >/dev/null 2>&1
+        
+        echo "Rollback completed - original environment restored"
         exit 1
     fi
     
@@ -545,13 +485,13 @@ zero_downtime_deploy() {
     echo "New Master IP: $new_master_ip"
     echo "New Deployment ID: $new_deployment_id"
     
-    # Health check on green environment
-    echo "Health checking Green environment..."
-    local health_check_retries=20
+    # Health check on green environment (max 20 minutes)
+    echo "Health checking Green environment (max 20 minutes)..."
+    local health_check_retries=20  # 20 attempts * 60 seconds = 20 minutes
     local new_cluster_healthy=false
     
     for i in $(seq 1 $health_check_retries); do
-        echo "Health check attempt $i/$health_check_retries..."
+        echo "Health check attempt $i/$health_check_retries ($i minutes)..."
         
         local health_check_result=1 # Default to failure
         ssh -i ~/.ssh/"$ssh_key" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "ubuntu@$new_master_ip" "
@@ -562,7 +502,7 @@ zero_downtime_deploy() {
         
         if [ $health_check_result -eq 0 ]; then
             new_cluster_healthy=true
-            echo "✅ Green environment is healthy!"
+            echo "✅ Green environment is healthy after $i minutes!"
             break
         fi
         
@@ -571,36 +511,77 @@ zero_downtime_deploy() {
     done
     
     if [ "$new_cluster_healthy" = false ]; then
-        echo "❌ Green environment failed health check, rolling back..."
-        terraform destroy -auto-approve > /dev/null 2>&1 # Destroy failed green
+        echo "❌ Green environment failed health check after 20 minutes, rolling back..."
+        
+        # Sicherstellen, dass die OpenStack-Credentials verfügbar sind
+        echo "Ensuring OpenStack credentials are available for cleanup..."
+        source openrc.sh
+        
+        echo "Destroying failed Green environment..."
+        terraform destroy -auto-approve
+        
+        # Switch back to original version and restore state
+        echo "Switching back to the original version..."
         git checkout "$current_version" >/dev/null 2>&1
-        # Restore blue workspace
-        mv "terraform.tfstate.d/$blue_workspace/terraform.tfstate" "terraform.tfstate.d/default/terraform.tfstate"
-        safe_workspace_delete "$blue_workspace"
+        
+        echo "Restoring original terraform state..."
+        cp "terraform.tfstate.backup-$backup_timestamp" terraform.tfstate
+        if [ -f "terraform.tfstate.backup.orig-$backup_timestamp" ]; then
+            cp "terraform.tfstate.backup.orig-$backup_timestamp" terraform.tfstate.backup
+        fi
+        
+        # Reinitialize terraform for original version
+        terraform init -upgrade >/dev/null 2>&1
+        
+        echo "Verifying restored environment connectivity..."
+        local restored_master_ip
+        restored_master_ip=$(terraform output -raw master_ip 2>/dev/null)
+        if [ -n "$restored_master_ip" ]; then
+            echo "✅ Original environment successfully restored and operational"
+            echo "Restored Master IP: $restored_master_ip"
+        else
+            echo "⚠️ Original environment state restored but verification failed"
+            echo "Manual intervention may be required"
+        fi
+        
         echo "Rollback completed"
         exit 1
     fi
     
-    # Green is healthy, so it is now the new production environment.
-    # The 'default' workspace is already managing the green environment.
-    echo "✅ Switch successful! The new Green environment is now live in the 'default' workspace."
+    # Green environment is healthy! Now cleanup the old blue environment
+    echo "✅ Green environment is healthy! Cleaning up old Blue environment..."
     
-    # Cleanup old Blue environment
-    echo "Cleaning up old Blue environment (from workspace '$blue_workspace')..."
+    # Switch back to original version to cleanup old infrastructure
+    echo "Temporarily switching to original version to cleanup old infrastructure..."
+    git checkout "$current_version" >/dev/null 2>&1
     
-    # Switch to the blue workspace to destroy it
-    if ! terraform workspace select "$blue_workspace" 2>/dev/null; then
-        echo "Warning: Could not switch to '$blue_workspace' to clean it up. Manual cleanup may be required."
-    else
-        if terraform destroy -auto-approve > /dev/null 2>&1; then
-            echo "✅ Old Blue environment cleanup successful"
-        else
-            echo "Warning: Blue environment cleanup had issues. Manual cleanup may be required."
-        fi
-        # Switch back to default and delete the now-empty blue workspace
-        terraform workspace select default >/dev/null 2>&1
-        safe_workspace_delete "$blue_workspace"
+    # Restore old state temporarily for cleanup
+    cp "terraform.tfstate.backup-$backup_timestamp" terraform.tfstate
+    if [ -f "terraform.tfstate.backup.orig-$backup_timestamp" ]; then
+        cp "terraform.tfstate.backup.orig-$backup_timestamp" terraform.tfstate.backup
     fi
+    
+    # Reinitialize and cleanup old infrastructure
+    terraform init -upgrade >/dev/null 2>&1
+    
+    echo "Destroying old Blue environment resources..."
+    if terraform destroy -auto-approve; then
+        echo "✅ Old Blue environment cleanup successful"
+    else
+        echo "Warning: Old Blue environment cleanup had issues. Manual cleanup may be required."
+    fi
+    
+    # Switch back to new version
+    echo "Switching back to new version..."
+    git checkout "$new_version" >/dev/null 2>&1
+    
+    # The new terraform.tfstate should already be there from the successful deployment
+    # Reinitialize terraform for the new version
+    terraform init -upgrade >/dev/null 2>&1
+    
+    # Cleanup backup files
+    echo "Cleaning up backup files..."
+    rm -f "terraform.tfstate.backup-$backup_timestamp" "terraform.tfstate.backup.orig-$backup_timestamp"
     
     echo ""
     echo "Zero-downtime deployment completed successfully!"
@@ -623,9 +604,6 @@ rollback_deployment() {
     
     echo "Starting Rollback to version $target_version..."
     echo "================================================="
-    
-    # Sicherstellen, dass wir im default workspace sind
-    terraform workspace select default >/dev/null 2>&1
 
     # Überprüfen, ob eine Infrastruktur zum Zurücksetzen vorhanden ist
     local current_master_ip
@@ -662,7 +640,7 @@ rollback_deployment() {
     fi
 
     # Destroy current infrastructure
-    echo "Destroying current infrastructure (from workspace 'default')..."
+    echo "Destroying current infrastructure..."
     if ! terraform destroy -auto-approve; then
         echo "Warning: Infrastructure destruction may have failed. Continuing with deployment anyway."
     fi
