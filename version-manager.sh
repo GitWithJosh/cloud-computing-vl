@@ -192,7 +192,14 @@ list_versions() {
     git tag -l | sort -V
     echo ""
     echo "Current:"
-    git describe --tags --exact-match HEAD 2>/dev/null || echo "No tag"
+    local current_tag=$(git describe --tags --exact-match HEAD 2>/dev/null)
+    local current_branch=$(git branch --show-current)
+    
+    if [ -n "$current_tag" ]; then
+        echo "Tag: $current_tag"
+    else
+        echo "Branch: $current_branch (no exact tag match)"
+    fi
 }
 
 show_status() {
@@ -376,7 +383,7 @@ zero_downtime_deploy() {
     
     # Get current state
     local current_version
-    current_version=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "main")
+    current_version=$(git describe --tags --exact-match HEAD 2>/dev/null || git branch --show-current)
     local current_master_ip
     current_master_ip=$(terraform output -raw master_ip 2>/dev/null)
     local current_deployment_id
@@ -427,8 +434,7 @@ zero_downtime_deploy() {
     # Checkout target version
     if ! git checkout "$target_version" 2>/dev/null; then
         echo "❌ Version $target_version not found"
-        echo "🔄 Restoring original git state..."
-        git checkout "$current_version" >/dev/null 2>&1
+        echo "🔄 Staying on current branch/version..."
         rm -rf "$backup_dir" "$new_state_dir"
         exit 1
     fi
@@ -623,8 +629,19 @@ rollback_to_previous_state() {
     fi
     
     # Restore git state
-    git checkout "$current_version" >/dev/null 2>&1
-    echo "✅ Restored git to $current_version"
+    if git show-ref --verify --quiet "refs/heads/$current_version"; then
+        # It's a branch name
+        git checkout "$current_version" >/dev/null 2>&1
+        echo "✅ Restored git to branch $current_version"
+    elif git show-ref --verify --quiet "refs/tags/$current_version"; then
+        # It's a tag
+        git checkout "$current_version" >/dev/null 2>&1
+        echo "✅ Restored git to tag $current_version"
+    else
+        # Try to checkout anyway (might be a commit hash or valid ref)
+        git checkout "$current_version" >/dev/null 2>&1 || echo "⚠️ Could not restore git to $current_version"
+        echo "✅ Restored git to $current_version"
+    fi
     
     # Re-initialize terraform with restored state
     terraform init >/dev/null 2>&1
@@ -674,7 +691,7 @@ rollback_deployment() {
     
     # Get current details
     local current_version
-    current_version=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "main")
+    current_version=$(git describe --tags --exact-match HEAD 2>/dev/null || git branch --show-current)
     
     echo "Current version: $current_version"
     echo "Current Master IP: $current_master_ip"
@@ -692,8 +709,8 @@ rollback_deployment() {
     echo "Switching to version $target_version..."
     if ! git checkout "$target_version" 2>/dev/null; then
         echo "❌ Version $target_version not found"
-        # Zurück zum ursprünglichen Git-Status, falls der Checkout fehlschlägt
-        git checkout "$current_version" >/dev/null 2>&1
+        # Auf dem aktuellen Branch bleiben, nicht zu main wechseln
+        echo "🔄 Staying on current branch/version: $current_version"
         exit 1
     fi
 
@@ -711,7 +728,11 @@ rollback_deployment() {
     if [ $exit_code -ne 0 ]; then
         echo "❌ Rollback deployment failed."
         # Versuch, zum vorherigen Git-Status zurückzukehren
-        git checkout "$current_version" >/dev/null 2>&1
+        if git show-ref --verify --quiet "refs/heads/$current_version"; then
+            git checkout "$current_version" >/dev/null 2>&1
+        elif git show-ref --verify --quiet "refs/tags/$current_version"; then
+            git checkout "$current_version" >/dev/null 2>&1
+        fi
         exit $exit_code
     fi
     
