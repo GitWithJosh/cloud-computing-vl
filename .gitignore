@@ -3,6 +3,7 @@
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
+*.terraform.lock.*
 terraform.tfvars
 
 # Secrets & Credentials
