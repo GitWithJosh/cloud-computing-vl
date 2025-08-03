@@ -56,17 +56,23 @@
 
 ## 🚀 **Quick Start für Aufgabe 4**
 
-### **Setup Data Lake & Batch Processing**
+### **Setup Data Lake & Database-Driven Big Data Processing**
 ```bash
 # ⚠️  WICHTIG: Befehle in dieser Reihenfolge ausführen!
 
 # 1. Data Lake installieren (ZUERST - erstellt big-data namespace + MinIO)
 ./version-manager.sh setup-datalake
 
-# 2. ML Pipeline starten (benötigt setup-datalake!) 
-./version-manager.sh ml-pipeline
+# 2. Database-Driven ML Pipeline starten
+./version-manager.sh database-pipeline
 
 # 3. Status prüfen (SSH erforderlich)
 ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get pods -n big-data
 ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data
+
+# 4. Logs überwachen 
+ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl logs job/database-ml-pipeline-job -n big-data -f
+
+# 5. MinIO Data Lake Dashboard öffnen
+# http://$master_ip:30900 (minioadmin/minioadmin123)
 ```

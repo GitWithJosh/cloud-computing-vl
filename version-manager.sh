@@ -38,16 +38,15 @@ show_help() {
     echo "  Big Data Commands:"
     echo "  setup-datalake         - Install MinIO + Python ML data lake"
     echo "  ml-pipeline            - Run Python ML pipeline on big data"
+    echo "  database-pipeline      - Run database-driven ML pipeline (AUFGABE 4)"
     echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
     echo ""
     echo "Examples:"
     echo "  $0 deploy v1.0"
     echo "  $0 zero-downtime v1.1"
     echo "  $0 setup-datalake"
-    echo "  $0 setup-streaming"
-    echo "  $0 start-stream"
-    echo "  $0 run-batch-job food-analysis"
-    echo "  $0 start-stream"
+    echo "  $0 database-pipeline"
+    echo "  $0 ml-pipeline"
 }
 
 
@@ -887,6 +886,93 @@ EOF
 # 🧹 ML JOB MANAGEMENT FUNCTIONS 
 # ========================================
 
+database_pipeline() {
+    echo "🗂️ Starting Database-Driven Big Data ML Pipeline"
+    echo "================================================="
+    echo "⚠️  Dieses ist die vollständige AUFGABE 4 Implementierung:"
+    echo "   - Liest Daten aus MinIO Data Lake Datenbank"
+    echo "   - Führt ML-Processing auf großen Datensätzen durch"
+    echo "   - Schreibt Ergebnisse zurück in Data Lake"
+    echo "   - Demonstriert echte Big Data Verarbeitung"
+    echo ""
+    
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    # Check if MinIO is running
+    echo "🔍 Checking MinIO Data Lake status..."
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        if ! kubectl get pods -n big-data | grep -q minio.*Running; then
+            echo '❌ MinIO Data Lake is not running'
+            echo 'Please run: ./version-manager.sh setup-datalake first'
+            exit 1
+        fi
+        echo '✅ MinIO Data Lake is running'
+    "
+    
+    # --- Lokale Pfade zu den Dateien ---
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local pipeline_job_yaml="$script_dir/big-data/database-pipeline-job.yaml"
+    
+    if [ ! -f "$pipeline_job_yaml" ]; then
+        echo "❌ database-pipeline-job.yaml nicht gefunden: $pipeline_job_yaml"
+        exit 1
+    fi
+    
+    echo "Using Database Pipeline Job from: $pipeline_job_yaml"
+    
+    # Kopiere Job-Definition auf Remote-Server
+    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$pipeline_job_yaml" ubuntu@$master_ip:/tmp/database-pipeline-job.yaml
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '🚀 Starting Database-Driven Big Data ML Pipeline Job...'
+        
+        # Apply the job
+        kubectl apply -f /tmp/database-pipeline-job.yaml
+        
+        echo '✅ Database Pipeline Job submitted!'
+        echo ''
+        echo '📊 Monitor the pipeline:'
+        echo '   kubectl get jobs -n big-data'
+        echo '   kubectl get pods -n big-data'
+        echo '   kubectl logs job/database-ml-pipeline-job -n big-data -f'
+        echo ''
+        echo '🗂️ Access MinIO Data Lake at: http://$master_ip:30900'
+        echo '   Username: minioadmin'
+        echo '   Password: minioadmin123'
+        echo ''
+        echo '📋 Check processed results in MinIO buckets:'
+        echo '   - raw-data: Original datasets'
+        echo '   - processed-data: ML results and predictions'
+        echo '   - ml-models: Trained ML models'
+        
+        # Real-time job monitoring
+        echo ''
+        echo '🔍 Job Status:'
+        kubectl get jobs -n big-data
+        echo ''
+        echo '📋 Pod Status:'
+        kubectl get pods -n big-data
+        
+        # Cleanup temp files
+        rm -f /tmp/database-pipeline-job.yaml
+    "
+    
+    echo ""
+    echo "🎯 DATABASE-DRIVEN BIG DATA PIPELINE FEATURES:"
+    echo "   ✅ Reads large datasets from MinIO Data Lake"
+    echo "   ✅ Performs ML processing on 20,000+ food samples"
+    echo "   ✅ Uses Random Forest and K-Means clustering"
+    echo "   ✅ Generates batch predictions on new data"
+    echo "   ✅ Saves all results back to Data Lake"
+    echo "   ✅ Complete AUFGABE 4 implementation"
+}
+
 cleanup_ml_jobs() {
     echo "🧹 Cleaning up ML jobs..."
     
@@ -950,6 +1036,9 @@ case $1 in
         ;;
     "ml-pipeline")
         ml_pipeline
+        ;;
+    "database-pipeline")
+        database_pipeline
         ;;
     "cleanup-ml-jobs")
         cleanup_ml_jobs
