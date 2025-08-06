@@ -4,7 +4,7 @@ from PIL import Image
 import io
 
 # Streamlit App-Titel
-st.title("Kalorien-Schätzer mit Google Gemini")
+st.title("Kalorien-Schätzer mit Google Gemini - Version v1.3")
 st.write("Lade ein Bild deines Essens hoch und die KI wird die Kalorien schätzen.")
 
 # Sidebar mit Erklärungen
