@@ -14,7 +14,6 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 **Warum gewählt:**
 - **OpenStack-nativ** + Multi-Cloud-fähig
 - **Deklarative Konfiguration** mit State Management
-- **Terraform Workspaces** ermöglichen Zero-Downtime Deployments
 - **Immutable Infrastructure** durch kompletten Ressourcenaustausch
 
 **Alternativen:** Ansible (weniger für IaC), CloudFormation (AWS-only), Pulumi (weniger etabliert)
@@ -27,7 +26,6 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 - **40% weniger Ressourcenverbrauch** als Standard K8s
 - **Production-ready** mit allen K8s-Features
 - **Eingebauter Traefik** Ingress Controller
-- **Perfekt für OpenStack** mit 2-4 GB RAM
 
 **Alternativen:** Standard K8s (zu ressourcenintensiv), Docker Swarm (weniger Features), OpenShift (zu komplex)
 
@@ -66,19 +64,10 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 
 ---
 
-## 🔄 Deployment Strategy: **Zero-Downtime mit Terraform Workspaces**
-
-**Warum gewählt:**
-- **True Immutable Infrastructure** - komplette neue Infrastruktur
-- **Risk Mitigation** - Health Checks + automatischer Rollback
-- **Production-ready** - echte Zero-Downtime
-
----
-
 ## 🎯 Bonuspunkte-Features
 
 - ✅ **K3s statt Standard K8s** - Ressourceneffizient + Production-ready
-- ✅ **Zero-Downtime Deployments** - Terraform Workspaces
+- ✅ **Zero-Downtime Deployments** - Keine Downtime und sichere Rolebacks
 - ✅ **Ingress Controller** - Traefik für externe Erreichbarkeit  
 - ✅ **HPA + Monitoring** - Prometheus + Grafana Stack
 - ✅ **AI/ML Integration** - Google Gemini Bilderkennung
