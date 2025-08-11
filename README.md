@@ -5,6 +5,7 @@
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s-326CE5.svg)](https://k3s.io)
 [![OpenStack](https://img.shields.io/badge/OpenStack-Cloud-red.svg)](https://openstack.org)
 [![Datalake](https://img.shields.io/badge/Datalake-MinIO-purple.svg)](https://www.min.io/)
+[![Apache Spark (Spark MLlib)](https://img.shields.io/badge/Batch_Verarbeitung-SparkMLlib-red.svg)](https://spark.apache.org/mllib/)
 
 > **Ein vollständiges Cloud Computing Projekt mit Immutable Infrastructure, Multi-Node Kubernetes, Zero-Downtime Deployments, Ingress Controller und KI-basierter Streamlit-Anwendung**
 
@@ -30,6 +31,7 @@ Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Comput
 - ⚡ **Horizontal Pod Autoscaler** mit Custom Metrics
 - 🔄 **Blue-Green Deployment Strategy**
 - 🗄️ **Cloud Native Datalake** mit MinIO
+- 📚 **Batch Verarbeitung mit ML Bibliothek** Spark MLlib
 
 ## 🏗️ Architektur
 
@@ -458,6 +460,8 @@ ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 - [`main.tf`](./main.tf) - Terraform Infrastructure Definition
 - [`grafana-dashboard-caloguessr.json`](./grafana-dashboard-caloguessr.json) - Grafana Dashboard Konfiguration
 - [`datalake.yaml`](./big-data/datalake.yaml) - Datalake MinIO Konfiguration
+- [`data-ingestion-job.yaml`](./big-data/data-ingestion-job.yaml) - Data Ingestion Konfiguration
+- [`spark-ml-pipeline-job.yaml`](./big-data/spark-ml-pipeline-job.yaml) - Batch Verarbeitung Konfiguration
 
 ### Template-Dateien
 
@@ -471,6 +475,7 @@ ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 - [Streamlit Documentation](https://docs.streamlit.io/)
 - [Kubernetes Documentation](https://kubernetes.io/docs/)
 - [MinIO Documentation](https://www.min.io/)
+- [Apache Spark Documentation](https://spark.apache.org/mllib/)
 
 ## 📄 Lizenz
 

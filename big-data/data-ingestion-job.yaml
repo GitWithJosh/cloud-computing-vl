@@ -78,6 +78,8 @@ spec:
                   """Initialisiere MinIO Client"""
                   self.client = Minio(
                       'minio.big-data.svc.cluster.local:9000',
+                      access_key='minioadmin',
+                      secret_key='minioadmin123',
                       secure=False
                   )
                   self.raw_bucket = 'raw-data'
@@ -85,6 +87,20 @@ spec:
                   self.models_bucket = 'ml-models'
                   
                   logger.info("🗂️ MinIO Data Lake Client initialized")
+                  
+              def test_connection(self):
+                  """Test MinIO connection and list buckets"""
+                  try:
+                      logger.info("🔧 Testing MinIO connection...")
+                      buckets = list(self.client.list_buckets())
+                      logger.info(f"✅ Connection successful! Found {len(buckets)} buckets:")
+                      for bucket in buckets:
+                          logger.info(f"   - {bucket.name} (created: {bucket.creation_date})")
+                      return True
+                  except Exception as e:
+                      logger.error(f"❌ MinIO connection test failed: {e}")
+                      logger.error(f"   Error type: {type(e).__name__}")
+                      return False
                   
               def ensure_buckets_exist(self):
                   """Stelle sicher, dass alle benötigten Buckets existieren"""
@@ -99,10 +115,16 @@ spec:
                               logger.info(f"📁 Bucket exists: {bucket}")
                       except Exception as e:
                           logger.error(f"❌ Bucket creation failed for {bucket}: {e}")
+                          logger.error(f"   Error type: {type(e).__name__}")
+                          logger.error(f"   Error details: {str(e)}")
+                          raise  # Re-raise to stop execution if bucket creation fails
                           
               def upload_dataframe(self, df, bucket, filename, format='csv'):
                   """Upload DataFrame als CSV zu MinIO"""
                   try:
+                      logger.info(f"📤 Starting upload of {filename} to {bucket}...")
+                      logger.info(f"   DataFrame shape: {df.shape}")
+                      
                       buffer = io.BytesIO()
                       if format == 'csv':
                           df.to_csv(buffer, index=False)
@@ -110,20 +132,35 @@ spec:
                           df.to_parquet(buffer, index=False)
                       
                       buffer.seek(0)
+                      buffer_size = len(buffer.getvalue())
+                      logger.info(f"   Buffer size: {buffer_size:,} bytes")
                       
                       self.client.put_object(
                           bucket,
                           filename,
                           buffer,
-                          length=len(buffer.getvalue()),
+                          length=buffer_size,
                           content_type='application/octet-stream'
                       )
                       
-                      logger.info(f"📤 Uploaded: {filename} to {bucket} ({len(df):,} rows)")
+                      logger.info(f"✅ Uploaded: {filename} to {bucket} ({len(df):,} rows)")
+                      
+                      # Verify upload by listing bucket contents
+                      try:
+                          objects = list(self.client.list_objects(bucket, prefix=filename))
+                          if objects:
+                              logger.info(f"✅ Upload verified: {filename} exists in {bucket}")
+                          else:
+                              logger.warning(f"⚠️ Upload verification failed: {filename} not found in {bucket}")
+                      except Exception as verify_e:
+                          logger.warning(f"⚠️ Upload verification failed: {verify_e}")
+                      
                       return True
                       
                   except Exception as e:
                       logger.error(f"❌ Upload failed: {e}")
+                      logger.error(f"   Error type: {type(e).__name__}")
+                      logger.error(f"   Error details: {str(e)}")
                       return False
                       
               def check_data_exists(self, bucket, filename):
@@ -229,6 +266,12 @@ spec:
               try:
                   # 1. Initialize Data Lake Connection
                   data_lake = MinIODataLake()
+                  
+                  # Test connection first
+                  if not data_lake.test_connection():
+                      logger.error("❌ MinIO connection failed, cannot proceed")
+                      return
+                  
                   data_lake.ensure_buckets_exist()
                   
                   # 2. Generate Food Dataset

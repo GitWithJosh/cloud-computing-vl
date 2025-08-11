@@ -58,7 +58,7 @@ spec:
           
           # Install additional Python packages
           echo "📦 Installing required Python packages..."
-          pip install --no-cache-dir minio pandas pyarrow
+          pip install --no-cache-dir pyspark minio
           
           # Create the Spark ML pipeline script
           cat > /app/spark_ml_pipeline.py << 'PYSPARK'
@@ -118,6 +118,8 @@ spec:
                   # Initialize MinIO client
                   self.minio_client = Minio(
                       'minio.big-data.svc.cluster.local:9000',
+                      access_key='minioadmin',
+                      secret_key='minioadmin123',
                       secure=False
                   )
                   self.raw_bucket = 'raw-data'
@@ -126,12 +128,36 @@ spec:
                   
                   self.timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
                   
+              def ensure_buckets_exist(self):
+                  """Ensure all required buckets exist"""
+                  buckets = [self.raw_bucket, self.processed_bucket, self.models_bucket]
+                  
+                  for bucket in buckets:
+                      try:
+                          if not self.minio_client.bucket_exists(bucket):
+                              self.minio_client.make_bucket(bucket)
+                              logger.info(f"✅ Created bucket: {bucket}")
+                          else:
+                              logger.info(f"📁 Bucket exists: {bucket}")
+                      except Exception as e:
+                          logger.warning(f"⚠️ Bucket check/creation failed for {bucket}: {e}")
+                  
               def load_data_from_minio(self):
                   """Load data from MinIO using Spark"""
                   logger.info("📥 Loading data from MinIO Data Lake...")
                   
                   try:
+                      # First, check if the file exists
+                      try:
+                          stat = self.minio_client.stat_object(self.raw_bucket, "large_food_dataset_latest.csv")
+                          logger.info(f"✅ Found data file: large_food_dataset_latest.csv ({stat.size:,} bytes)")
+                      except Exception as stat_e:
+                          logger.error(f"❌ Data file not found: {stat_e}")
+                          logger.error("Please run data ingestion first: ./version-manager.sh data-ingestion")
+                          raise
+                      
                       # Download CSV data from MinIO to local temp file
+                      logger.info("📥 Downloading data from MinIO...")
                       response = self.minio_client.get_object(self.raw_bucket, "large_food_dataset_latest.csv")
                       
                       # Save to temporary file
@@ -139,17 +165,28 @@ spec:
                           for data in response.stream(32*1024):
                               f.write(data)
                       
+                      logger.info("📁 Data saved to local temp file")
+                      
                       # Load into Spark DataFrame
+                      logger.info("🔥 Loading data into Spark DataFrame...")
                       df = self.spark.read.csv("/tmp/food_data.csv", header=True, inferSchema=True)
                       
-                      logger.info(f"✅ Loaded {df.count():,} rows with {len(df.columns)} columns")
+                      row_count = df.count()
+                      col_count = len(df.columns)
+                      
+                      logger.info(f"✅ Loaded {row_count:,} rows with {col_count} columns")
                       logger.info("📊 Data Schema:")
                       df.printSchema()
+                      
+                      if row_count == 0:
+                          logger.error("❌ Dataset is empty! Please check data ingestion.")
+                          raise ValueError("Empty dataset")
                       
                       return df
                       
                   except Exception as e:
                       logger.error(f"❌ Failed to load data from MinIO: {e}")
+                      logger.error(f"   Error type: {type(e).__name__}")
                       raise
                       
               def data_exploration_and_cleaning(self, df):
@@ -391,6 +428,9 @@ spec:
               try:
                   # Initialize Spark ML Pipeline
                   pipeline = SparkMLPipeline()
+                  
+                  # Ensure buckets exist
+                  pipeline.ensure_buckets_exist()
                   
                   # 1. Load data from MinIO
                   df = pipeline.load_data_from_minio()
