@@ -36,15 +36,17 @@ show_help() {
     echo "  logs                   - Show application logs"
     echo ""
     echo "  Big Data Commands:"
-    echo "  setup-datalake         - Install MinIO + Python ML data lake"
-    echo "  database-pipeline      - Run database-driven ML pipeline"
+    echo "  setup-datalake         - Install MinIO Data Lake"
+    echo "  data-ingestion         - Run data ingestion job (generates & uploads data)"
+    echo "  spark-ml-pipeline      - Run Apache Spark ML pipeline"
     echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
     echo ""
     echo "Examples:"
     echo "  $0 deploy v1.0"
     echo "  $0 zero-downtime v1.1"
     echo "  $0 setup-datalake"
-    echo "  $0 database-pipeline"
+    echo "  $0 data-ingestion"
+    echo "  $0 spark-ml-pipeline"
 }
 
 
@@ -797,13 +799,13 @@ setup_datalake() {
 # 🧹 ML JOB MANAGEMENT FUNCTIONS 
 # ========================================
 
-database_pipeline() {
-    echo "Starting Database-Driven Big Data ML Pipeline"
-    echo "================================================="
-    echo "   - Liest Daten aus MinIO Data Lake Datenbank"
-    echo "   - Führt ML-Processing auf großen Datensätzen durch"
-    echo "   - Schreibt Ergebnisse zurück in Data Lake"
-    echo "   - Demonstriert echte Big Data Verarbeitung"
+data_ingestion() {
+    echo "Starting Data Ingestion Job"
+    echo "============================"
+    echo "   - Generates large food dataset (50,000+ samples)"
+    echo "   - Uploads data to MinIO Data Lake"
+    echo "   - Prepares data for ML processing"
+    echo "   - Creates metadata for data governance"
     echo ""
     
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
@@ -827,39 +829,40 @@ database_pipeline() {
     
     # --- Lokale Pfade zu den Dateien ---
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local pipeline_job_yaml="$script_dir/big-data/database-pipeline-job.yaml"
+    local ingestion_job_yaml="$script_dir/big-data/data-ingestion-job.yaml"
     
-    if [ ! -f "$pipeline_job_yaml" ]; then
-        echo "❌ database-pipeline-job.yaml nicht gefunden: $pipeline_job_yaml"
+    if [ ! -f "$ingestion_job_yaml" ]; then
+        echo "❌ data-ingestion-job.yaml nicht gefunden: $ingestion_job_yaml"
         exit 1
     fi
     
-    echo "Using Database Pipeline Job from: $pipeline_job_yaml"
+    echo "Using Data Ingestion Job from: $ingestion_job_yaml"
     
     # Kopiere Job-Definition auf Remote-Server
-    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$pipeline_job_yaml" ubuntu@$master_ip:/tmp/database-pipeline-job.yaml
+    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$ingestion_job_yaml" ubuntu@$master_ip:/tmp/data-ingestion-job.yaml
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        echo '🚀 Starting Database-Driven Big Data ML Pipeline Job...'
+        echo '🚀 Starting Data Ingestion Job...'
+        
+        # Delete any existing ingestion job
+        kubectl delete job data-ingestion-job -n big-data --ignore-not-found=true
         
         # Apply the job
-        kubectl apply -f /tmp/database-pipeline-job.yaml
+        kubectl apply -f /tmp/data-ingestion-job.yaml
         
-        echo '✅ Database Pipeline Job submitted!'
+        echo '✅ Data Ingestion Job submitted!'
         echo ''
-        echo '📊 Monitor the pipeline:'
+        echo '📊 Monitor the ingestion:'
         echo '   kubectl get jobs -n big-data'
         echo '   kubectl get pods -n big-data'
-        echo '   kubectl logs job/database-ml-pipeline-job -n big-data -f'
+        echo '   kubectl logs job/data-ingestion-job -n big-data -f'
         echo ''
-        echo '🗂️ Access MinIO Data Lake at: http://$master_ip:30900'
+        echo '🗂️ Access MinIO Data Lake at: http://$master_ip:30901'
         echo '   Username: minioadmin'
         echo '   Password: minioadmin123'
         echo ''
-        echo '📋 Check processed results in MinIO buckets:'
-        echo '   - raw-data: Original datasets'
-        echo '   - processed-data: ML results and predictions'
-        echo '   - ml-models: Trained ML models'
+        echo '📋 Check ingested data in MinIO buckets:'
+        echo '   - raw-data: Original datasets and metadata'
         
         # Real-time job monitoring
         echo ''
@@ -870,17 +873,107 @@ database_pipeline() {
         kubectl get pods -n big-data
         
         # Cleanup temp files
-        rm -f /tmp/database-pipeline-job.yaml
+        rm -f /tmp/data-ingestion-job.yaml
     "
     
     echo ""
-    echo "🎯 DATABASE-DRIVEN BIG DATA PIPELINE FEATURES:"
+    echo "🎯 DATA INGESTION FEATURES:"
+    echo "   ✅ Generates 50,000+ realistic food samples"
+    echo "   ✅ Uploads data to MinIO Data Lake"
+    echo "   ✅ Creates comprehensive metadata"
+    echo "   ✅ Prepares data for Spark ML processing"
+    echo "   ✅ Data governance and schema documentation"
+}
+
+spark_ml_pipeline() {
+    echo "Starting Apache Spark ML Pipeline"
+    echo "=================================="
+    echo "   - Reads data from MinIO Data Lake"
+    echo "   - Performs ML processing with Apache Spark & MLlib"
+    echo "   - Uses Random Forest and K-Means clustering"
+    echo "   - Saves results back to Data Lake"
+    echo "   - Enterprise-grade Big Data ML processing"
+    echo ""
+    
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    # Check if MinIO is running
+    echo "🔍 Checking MinIO Data Lake status..."
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        if ! kubectl get pods -n big-data | grep -q minio.*Running; then
+            echo '❌ MinIO Data Lake is not running'
+            echo 'Please run: ./version-manager.sh setup-datalake first'
+            exit 1
+        fi
+        echo '✅ MinIO Data Lake is running'
+    " || exit 1
+    
+    # --- Lokale Pfade zu den Dateien ---
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local spark_job_yaml="$script_dir/big-data/spark-ml-pipeline-job.yaml"
+    
+    if [ ! -f "$spark_job_yaml" ]; then
+        echo "❌ spark-ml-pipeline-job.yaml nicht gefunden: $spark_job_yaml"
+        exit 1
+    fi
+    
+    echo "Using Spark ML Pipeline Job from: $spark_job_yaml"
+    
+    # Kopiere Job-Definition auf Remote-Server
+    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$spark_job_yaml" ubuntu@$master_ip:/tmp/spark-ml-pipeline-job.yaml
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '🚀 Starting Apache Spark ML Pipeline Job...'
+        
+        # Delete any existing spark ml job
+        kubectl delete job spark-ml-pipeline-job -n big-data --ignore-not-found=true
+        
+        # Apply the job
+        kubectl apply -f /tmp/spark-ml-pipeline-job.yaml
+        
+        echo '✅ Spark ML Pipeline Job submitted!'
+        echo ''
+        echo '📊 Monitor the Spark ML pipeline:'
+        echo '   kubectl get jobs -n big-data'
+        echo '   kubectl get pods -n big-data'
+        echo '   kubectl logs job/spark-ml-pipeline-job -n big-data -f'
+        echo ''
+        echo '🗂️ Access MinIO Data Lake at: http://$master_ip:30901'
+        echo '   Username: minioadmin'
+        echo '   Password: minioadmin123'
+        echo ''
+        echo '📋 Check ML results in MinIO buckets:'
+        echo '   - processed-data: ML models and predictions'
+        echo '   - ml-models: Trained model artifacts'
+        
+        # Real-time job monitoring
+        echo ''
+        echo '🔍 Job Status:'
+        kubectl get jobs -n big-data
+        echo ''
+        echo '📋 Pod Status:'
+        kubectl get pods -n big-data
+        
+        # Cleanup temp files
+        rm -f /tmp/spark-ml-pipeline-job.yaml
+    "
+    
+    echo ""
+    echo "🎯 APACHE SPARK ML PIPELINE FEATURES:"
     echo "   ✅ Reads large datasets from MinIO Data Lake"
-    echo "   ✅ Performs ML processing on 20,000+ food samples"
-    echo "   ✅ Uses Random Forest and K-Means clustering"
-    echo "   ✅ Generates batch predictions on new data"
-    echo "   ✅ Saves all results back to Data Lake"
-    echo "   ✅ Complete AUFGABE 4 implementation"
+    echo "   ✅ Apache Spark distributed processing"
+    echo "   ✅ Random Forest regression with MLlib"
+    echo "   ✅ K-Means clustering analysis"
+    echo "   ✅ Advanced feature engineering with Spark SQL"
+    echo "   ✅ Model evaluation and performance metrics"
+    echo "   ✅ Results saved back to Data Lake"
+    echo "   ✅ Enterprise Big Data ML pipeline"
 }
 
 cleanup_ml_jobs() {
@@ -895,8 +988,12 @@ cleanup_ml_jobs() {
     fi
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        echo 'Deleting all jobs in big-data namespace...'
+        echo 'Deleting all ML jobs in big-data namespace...'
         kubectl delete jobs --all -n big-data
+        
+        echo 'Specific job cleanup:'
+        kubectl delete job data-ingestion-job -n big-data --ignore-not-found=true
+        kubectl delete job spark-ml-pipeline-job -n big-data --ignore-not-found=true
         
         echo 'Remaining jobs:'
         kubectl get jobs -n big-data
@@ -944,8 +1041,11 @@ case $1 in
     "setup-datalake")
         setup_datalake
         ;;
-    "database-pipeline")
-        database_pipeline
+    "data-ingestion")
+        data_ingestion
+        ;;
+    "spark-ml-pipeline")
+        spark_ml_pipeline
         ;;
     "cleanup-ml-jobs")
         cleanup_ml_jobs

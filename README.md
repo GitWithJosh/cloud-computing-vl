@@ -76,6 +76,7 @@ Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Comput
 | **Autoscaling** | Horizontal Pod Autoscaler | Dynamic Scaling | ✅ CPU + Memory Metrics |
 | **Version Control** | Git + Semantic Versioning | Infrastructure & App Versioning | ✅ Zero-Downtime Deployments |
 | **Datalake** | MinIO | Datenspeicherung | ✅ Cloud Nativer Datalake |
+| **Big Data Processing** | Apache Spark + MLlib | Verteilte Batch-Verarbeitung | ✅ Skalierbare ML-Pipelines |
 
 ## 🚀 Quick Start
 
@@ -399,15 +400,26 @@ v1.0.0 - Initial Release
    ./version-manager.sh setup-datalake
    ```
 
-2. **ML Datenverarbeitung**
+2. **Daten in Data Lake laden**
    ```bash
-   ./version-manager.sh database-pipeline
+   ./version-manager.sh data-ingestion
    ```
 
-3. **Cleanup**
+3. **Apache Spark ML Pipeline ausführen**
+   ```bash
+   ./version-manager.sh spark-ml-pipeline
+   ```
+
+4. **Cleanup**
    ```bash
    ./version-manager.sh cleanup-ml-jobs
    ```
+
+**Big Data Workflow:**
+- **MinIO Data Lake**: S3-kompatibles Object Storage für große Datensätze
+- **Data Ingestion**: Generiert 50.000+ Food-Samples und lädt sie in MinIO
+- **Spark ML**: Verteilte Batch-Verarbeitung mit Apache Spark und MLlib
+- **Zugriff**: MinIO Console unter `http://MASTER-IP:30901` (minioadmin/minioadmin123)
 
 ### Debugging
 

@@ -87,6 +87,18 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 
 ---
 
+## 🚀 Big Data Processing: **Apache Spark + MLlib**
+
+**Warum gewählt:**
+- **Verteilte Batch-Verarbeitung** für große Datensätze (50.000+ Samples)
+- **Skalierbarkeit** durch distributed computing auf mehreren Cores
+- **MLlib Integration** für Random Forest und K-Means Clustering
+- **Spark SQL** für effiziente Feature Engineering
+
+**Alternativen:** scikit-learn (nicht verteilbar), Hadoop MapReduce (komplexer), Dask (weniger etabliert)
+
+---
+
 ## 🎯 Bonuspunkte-Features
 
 - ✅ **K3s statt Standard K8s** - Ressourceneffizient + Production-ready
