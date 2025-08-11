@@ -37,8 +37,7 @@ show_help() {
     echo ""
     echo "  Big Data Commands:"
     echo "  setup-datalake         - Install MinIO + Python ML data lake"
-    echo "  ml-pipeline            - Run Python ML pipeline on big data"
-    echo "  database-pipeline      - Run database-driven ML pipeline (AUFGABE 4)"
+    echo "  database-pipeline      - Run database-driven ML pipeline"
     echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
     echo ""
     echo "Examples:"
@@ -46,7 +45,6 @@ show_help() {
     echo "  $0 zero-downtime v1.1"
     echo "  $0 setup-datalake"
     echo "  $0 database-pipeline"
-    echo "  $0 ml-pipeline"
 }
 
 
@@ -795,93 +793,6 @@ setup_datalake() {
     "
 }
 
-ml_pipeline() {
-    echo "Running ML Pipeline on Big Data"
-    echo "=================================="
-    
-    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
-    local ssh_key=$(get_ssh_key)
-    
-    if [ -z "$master_ip" ]; then
-        echo "❌ No cluster deployed"
-        exit 1
-    fi
-    
-    # --- Lokale Pfade zu den Python-Dateien ---
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local ml_pipeline_py="$script_dir/big-data/ml-pipeline.py"
-    if [ ! -f "$ml_pipeline_py" ]; then
-        echo "❌ ml-pipeline.py nicht gefunden: $ml_pipeline_py"
-        exit 1
-    fi
-    
-    echo "Using ML Pipeline from file: $ml_pipeline_py"
-    
-    # Kopiere Python-Datei auf Remote-Server
-    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$ml_pipeline_py" ubuntu@$master_ip:/tmp/ml-pipeline.py
-    
-    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        echo 'Creating ML Pipeline ConfigMap...'
-        
-        # Create/Update ConfigMap with the ml-pipeline.py file
-        kubectl delete configmap ml-pipeline-updated-code -n big-data 2>/dev/null || true
-        kubectl create configmap ml-pipeline-updated-code \
-            --from-file=ml-pipeline.py=/tmp/ml-pipeline.py \
-            --namespace=big-data
-        
-        echo 'Starting ML Pipeline Job with updated code...'
-        
-        # Generiere einen einheitlichen Timestamp im Format YYYYMMDD-HHMMSS für Job und Dateien
-        JOB_TIMESTAMP=\$(date +%Y%m%d-%H%M%S)
-        echo 'Using unified timestamp for job and files: '\$JOB_TIMESTAMP
-        
-        # Create ML Pipeline Job using the ConfigMap
-        kubectl apply -f - <<EOF
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: ml-food-pipeline-\${JOB_TIMESTAMP}
-  namespace: big-data
-spec:
-  template:
-    spec:
-      containers:
-      - name: ml-pipeline
-        image: python:3.9-slim
-        command: ['/bin/bash']
-        args: ['-c', 'apt-get update -qq && apt-get install -y -qq wget curl && pip install --no-cache-dir --quiet pandas numpy scikit-learn requests && wget -q https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc && chmod +x /usr/local/bin/mc && python /app/ml-pipeline.py']
-        env:
-        - name: ML_JOB_TIMESTAMP
-          value: "\${JOB_TIMESTAMP}"
-        volumeMounts:
-        - name: ml-code
-          mountPath: /app
-        resources:
-          requests:
-            memory: '512Mi'
-            cpu: '250m'
-          limits:
-            memory: '1Gi'
-            cpu: '1'
-      volumes:
-      - name: ml-code
-        configMap:
-          name: ml-pipeline-updated-code
-      restartPolicy: Never
-  backoffLimit: 3
-EOF
-
-        echo '🧹 Cleaning up temp files...'
-        rm -f /tmp/ml-pipeline.py
-        
-        echo 'ML Pipeline Job submitted!'
-        echo 'Check status with SSH:'
-        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl get jobs -n big-data'
-        echo 'View logs with SSH:'
-        echo '   ssh -i ~/.ssh/$ssh_key ubuntu@$master_ip kubectl logs job/ml-food-pipeline-'\${JOB_TIMESTAMP}' -n big-data'
-    "
-}
-
 # ========================================
 # 🧹 ML JOB MANAGEMENT FUNCTIONS 
 # ========================================
@@ -1033,9 +944,6 @@ case $1 in
         ;;
     "setup-datalake")
         setup_datalake
-        ;;
-    "ml-pipeline")
-        ml_pipeline
         ;;
     "database-pipeline")
         database_pipeline
