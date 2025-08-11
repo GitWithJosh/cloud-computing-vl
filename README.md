@@ -4,7 +4,7 @@
 [![Terraform](https://img.shields.io/badge/Terraform-1.0+-blue.svg)](https://terraform.io)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s-326CE5.svg)](https://k3s.io)
 [![OpenStack](https://img.shields.io/badge/OpenStack-Cloud-red.svg)](https://openstack.org)
-[![Datalake](https://img.shields.io/badge/MinIO-purple.svg)](https://www.min.io/)
+[![Datalake](https://img.shields.io/badge/Datalake-MinIO-purple.svg)](https://www.min.io/)
 
 > **Ein vollständiges Cloud Computing Projekt mit Immutable Infrastructure, Multi-Node Kubernetes, Zero-Downtime Deployments, Ingress Controller und KI-basierter Streamlit-Anwendung**
 
