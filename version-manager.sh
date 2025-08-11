@@ -798,9 +798,8 @@ setup_datalake() {
 # ========================================
 
 database_pipeline() {
-    echo "🗂️ Starting Database-Driven Big Data ML Pipeline"
+    echo "Starting Database-Driven Big Data ML Pipeline"
     echo "================================================="
-    echo "⚠️  Dieses ist die vollständige AUFGABE 4 Implementierung:"
     echo "   - Liest Daten aus MinIO Data Lake Datenbank"
     echo "   - Führt ML-Processing auf großen Datensätzen durch"
     echo "   - Schreibt Ergebnisse zurück in Data Lake"
@@ -824,7 +823,7 @@ database_pipeline() {
             exit 1
         fi
         echo '✅ MinIO Data Lake is running'
-    "
+    " || exit 1
     
     # --- Lokale Pfade zu den Dateien ---
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

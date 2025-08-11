@@ -52,11 +52,6 @@ spec:
           🗂️ Database-Driven Big Data ML Pipeline 
           ==========================================
           
-          AUFGABE 4: Vollständige Big Data Pipeline mit MinIO Data Lake
-          - Liest große Datensätze aus MinIO Data Lake
-          - Führt ML-Processing direkt auf Datenbank-Daten durch  
-          - Schreibt Ergebnisse zurück in MinIO Data Lake
-          - Demonstriert echte Big Data Verarbeitung
           """
           
           import pandas as pd
