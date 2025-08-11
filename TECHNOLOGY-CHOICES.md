@@ -75,6 +75,18 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 
 ---
 
+## 🗄️ Objekt-Storage: **MinIO**
+
+**Warum gewählt:**
+- **Cloud-native** + nahtlose Integration mit Kubernetes
+- **S3-kompatible API** für einfache Anbindung von SparkMLlib & scikit-learn
+- **Leichtgewichtig** läuft als einzelner Service
+- **Weniger Speicherverbrauch** Erasure Coding verbraucht weniger Speicher als n-Fache Replikation bei HDFS
+
+**Alternativen:** Apache Hadoop HDFS (schwergewichtig, nicht cloud-native), Ceph (komplexere Verwaltung), AWS S3 (vendor lock-in)
+
+---
+
 ## 🎯 Bonuspunkte-Features
 
 - ✅ **K3s statt Standard K8s** - Ressourceneffizient + Production-ready
@@ -82,3 +94,4 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 - ✅ **Ingress Controller** - Traefik für externe Erreichbarkeit  
 - ✅ **HPA + Monitoring** - Prometheus + Grafana Stack
 - ✅ **AI/ML Integration** - Google Gemini Bilderkennung
+- ✅ **MinIO Datalake** - Cloud Nativer Datalake
