@@ -4,6 +4,7 @@
 [![Terraform](https://img.shields.io/badge/Terraform-1.0+-blue.svg)](https://terraform.io)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-K3s-326CE5.svg)](https://k3s.io)
 [![OpenStack](https://img.shields.io/badge/OpenStack-Cloud-red.svg)](https://openstack.org)
+[![Datalake](https://img.shields.io/badge/MinIO-purple.svg)](https://www.min.io/)
 
 > **Ein vollständiges Cloud Computing Projekt mit Immutable Infrastructure, Multi-Node Kubernetes, Zero-Downtime Deployments, Ingress Controller und KI-basierter Streamlit-Anwendung**
 
@@ -18,6 +19,7 @@ Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Comput
 - ✅ **Aufgabe 1**: Immutable Infrastructure mit Terraform
 - ✅ **Aufgabe 2**: Configuration Management und Deployment-Versionierung  
 - ✅ **Aufgabe 3**: Multi-Node Kubernetes-Architektur mit skalierbarer Anwendung
+- ✅ **Aufgabe 4**: Data Lake / Big Data-Processing
 
 ### 🏆 **Bonus-Features:**
 
@@ -27,6 +29,7 @@ Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Comput
 - 🤖 **AI/ML Integration** mit Google Gemini API
 - ⚡ **Horizontal Pod Autoscaler** mit Custom Metrics
 - 🔄 **Blue-Green Deployment Strategy**
+- 🗄️ **Cloud Native Datalake** mit MinIO
 
 ## 🏗️ Architektur
 
@@ -72,6 +75,7 @@ Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Comput
 | **Monitoring** | Prometheus + Grafana | Real-time Observability | ✅ HPA Metrics Integration |
 | **Autoscaling** | Horizontal Pod Autoscaler | Dynamic Scaling | ✅ CPU + Memory Metrics |
 | **Version Control** | Git + Semantic Versioning | Infrastructure & App Versioning | ✅ Zero-Downtime Deployments |
+| **Datalake** | MinIO | Datenspeicherung | ✅ Cloud Nativer Datalake |
 
 ## 🚀 Quick Start
 
@@ -336,18 +340,6 @@ Die Streamlit-Anwendung ermöglicht:
 - ⚡ **Schnelle Bildverarbeitung**
 - 🔍 **Genauigkeits-Einschätzung**
 
-### Zugriff
-
-Nach erfolgreichem Deployment:
-
-```bash
-# App-URL anzeigen
-./version-manager.sh status
-
-# Direkter Zugriff über Browser
-open http://<MASTER-IP>:30001
-```
-
 ## 🎯 Versionierung & Deployment
 
 ### Semantic Versioning
@@ -400,6 +392,23 @@ v1.0.0 - Initial Release
 - 📱 **Pod-Status** (Running, Pending, Failed)
 - 🌐 **Service Connectivity** (Internal/External)
 
+### Data Lake / Big Data-Processing
+
+1. **Data Lake Setup ausführen**
+   ```bash
+   ./version-manager.sh setup-datalake
+   ```
+
+2. **ML Datenverarbeitung**
+   ```bash
+   ./version-manager.sh database-pipeline
+   ```
+
+3. **Cleanup**
+   ```bash
+   ./version-manager.sh cleanup-ml-jobs
+   ```
+
 ### Debugging
 
 ```bash
@@ -436,6 +445,7 @@ ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 - [`cloud-init-master.tpl`](./cloud-init-master.tpl) - Master Node Konfiguration
 - [`main.tf`](./main.tf) - Terraform Infrastructure Definition
 - [`grafana-dashboard-caloguessr.json`](./grafana-dashboard-caloguessr.json) - Grafana Dashboard Konfiguration
+- [`datalake.yaml`](./big-data/datalake.yaml) - Datalake MinIO Konfiguration
 
 ### Template-Dateien
 
@@ -448,6 +458,7 @@ ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 - [K3s Documentation](https://docs.k3s.io/)
 - [Streamlit Documentation](https://docs.streamlit.io/)
 - [Kubernetes Documentation](https://kubernetes.io/docs/)
+- [MinIO Documentation](https://www.min.io/)
 
 ## 📄 Lizenz
 
