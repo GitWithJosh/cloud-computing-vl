@@ -962,6 +962,41 @@ spark_ml_pipeline() {
         
         # Cleanup temp files
         rm -f /tmp/spark-ml-pipeline-job.yaml
+
+        # Monitor job progress with periodic status updates
+        echo ''
+        echo '⏳ Monitoring Spark ML Pipeline progress...'
+        echo '   (Checking status every minute until completion)'
+        echo ''
+        
+        # Loop to check job status every minute
+        while true; do
+            # Check job completion using succeeded field which is more reliable
+            JOB_SUCCEEDED=\$(kubectl get job spark-ml-pipeline-job -n big-data -o jsonpath='{.status.succeeded}' 2>/dev/null || echo '0')
+            JOB_FAILED=\$(kubectl get job spark-ml-pipeline-job -n big-data -o jsonpath='{.status.failed}' 2>/dev/null || echo '0')
+            
+            if [ \"\$JOB_SUCCEEDED\" = \"1\" ]; then
+                echo '✅ Spark ML Pipeline completed successfully!'
+                kubectl get job spark-ml-pipeline-job -n big-data
+                echo ''
+                break
+            elif [ \"\$JOB_FAILED\" = \"1\" ]; then
+                echo '❌ Spark ML Pipeline failed!'
+                kubectl get job spark-ml-pipeline-job -n big-data
+                echo ''
+                break
+            elif ! kubectl get job spark-ml-pipeline-job -n big-data >/dev/null 2>&1; then
+                echo '❌ Job not found - may have been deleted'
+                break
+            else
+                # Job is still running
+                echo \"\$(date '+%H:%M:%S') - Spark ML Pipeline still running...\"
+                kubectl get pods -n big-data -l job-name=spark-ml-pipeline-job --no-headers 2>/dev/null | head -1 || echo '  Pod status: Pending/Creating'
+            fi
+
+            sleep 10  # Wait 10 seconds before next check
+        done
+
     "
 }
 
