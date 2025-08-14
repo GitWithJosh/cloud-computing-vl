@@ -77,6 +77,7 @@ spec:
           import logging
           import json
           import io
+          import pickle
           from datetime import datetime
           from minio import Minio
           from minio.error import S3Error
@@ -366,12 +367,37 @@ spec:
                   logger.info("💾 Saving results to MinIO Data Lake...")
                   
                   try:
+                      # Save simple model metadata as pickle
+                      logger.info("🤖 Saving trained model...")
+                      
+                      # Simple model data without complex objects
+                      model_data = {
+                          "model_type": "RandomForestRegressor",
+                          "training_timestamp": self.timestamp,
+                          "metrics": metrics,
+                          "features_count": len(all_feature_cols) if 'all_feature_cols' in locals() else 0,
+                          "spark_version": self.spark.version
+                      }
+                      
+                      model_buffer = io.BytesIO()
+                      pickle.dump(model_data, model_buffer)
+                      model_buffer.seek(0)
+                      
+                      self.minio_client.put_object(
+                          self.models_bucket,
+                          f"spark_ml_model_{self.timestamp}.pkl",
+                          model_buffer,
+                          length=len(model_buffer.getvalue()),
+                          content_type='application/octet-stream'
+                      )
+                      
                       # Save model metrics and metadata
                       results = {
                           "model_type": "RandomForestRegressor",
                           "spark_version": self.spark.version,
                           "training_timestamp": self.timestamp,
                           "metrics": metrics,
+                          "model_file": f"spark_ml_model_{self.timestamp}.pkl",
                           "features_used": ["weight_grams", "protein_g", "carbs_g", "fat_g", "category", "meal_time", "preparation_method"],
                           "model_parameters": {
                               "numTrees": 50,
@@ -410,6 +436,7 @@ spec:
                       
                       logger.info("✅ Results saved to MinIO Data Lake")
                       logger.info(f"📁 Files saved:")
+                      logger.info(f"   - ml-models/spark_ml_model_{self.timestamp}.pkl")
                       logger.info(f"   - processed-data/spark_ml_results_{self.timestamp}.json")
                       logger.info(f"   - processed-data/spark_ml_results_latest.json")
                       
