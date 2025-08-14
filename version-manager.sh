@@ -1021,6 +1021,9 @@ cleanup_ml_jobs() {
         
         echo 'Remaining jobs:'
         kubectl get jobs -n big-data
+
+        echo 'Removing MinIO Data Lake...'
+        kubectl delete namespace big-data --ignore-not-found=true
         
         echo '✅ ML jobs cleanup completed!'
     "
