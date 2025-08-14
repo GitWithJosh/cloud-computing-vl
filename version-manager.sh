@@ -963,17 +963,6 @@ spark_ml_pipeline() {
         # Cleanup temp files
         rm -f /tmp/spark-ml-pipeline-job.yaml
     "
-    
-    echo ""
-    echo "🎯 APACHE SPARK ML PIPELINE FEATURES:"
-    echo "   ✅ Reads large datasets from MinIO Data Lake"
-    echo "   ✅ Apache Spark distributed processing"
-    echo "   ✅ Random Forest regression with MLlib"
-    echo "   ✅ K-Means clustering analysis"
-    echo "   ✅ Advanced feature engineering with Spark SQL"
-    echo "   ✅ Model evaluation and performance metrics"
-    echo "   ✅ Results saved back to Data Lake"
-    echo "   ✅ Enterprise Big Data ML pipeline"
 }
 
 cleanup_ml_jobs() {
