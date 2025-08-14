@@ -49,24 +49,22 @@ spec:
           fi
       containers:
       - name: spark-ml-pipeline
-        image: apache/spark-py:latest
+        image: openjdk:11-jre-slim
         command: ['sh', '-c']
         args:
         - |
-          echo "🚀 Starting Apache Spark ML Pipeline"
-          echo "====================================="
+          echo "🚀 Starting Simple ML Pipeline"
+          echo "============================="
           
-          # Install additional Python packages
-          echo "📦 Installing required Python packages..."
-          pip install --no-cache-dir --target /tmp/python-packages minio numpy
+          # Install Python and pip
+          apt-get update && apt-get install -y python3 python3-pip
           
-          # Set up Spark and Python paths
-          export SPARK_HOME=/opt/spark
-          export PY4J_ZIP=$(find $SPARK_HOME/python/lib -name "py4j-*.zip" | head -1)
-          export PYTHONPATH="$SPARK_HOME/python:$PY4J_ZIP:/tmp/python-packages"
-          echo "✅ SPARK_HOME: $SPARK_HOME"
-          echo "✅ PY4J_ZIP: $PY4J_ZIP"
-          echo "✅ PYTHONPATH: $PYTHONPATH"
+          # Install packages
+          pip3 install minio pyspark==3.3.0 numpy pandas
+          
+          # Simple environment setup
+          export HOME=/tmp
+          mkdir -p /tmp/.ivy2 /tmp/spark-warehouse
           
           # Create the Spark ML pipeline script
           cat > /app/spark_ml_pipeline.py << 'PYSPARK'
@@ -111,13 +109,11 @@ spec:
                   
                   self.spark = SparkSession.builder \
                       .appName("FoodCalorieMLPipeline") \
-                      .config("spark.sql.adaptive.enabled", "true") \
-                      .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
-                      .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+                      .master("local[*]") \
                       .getOrCreate()
                   
                   # Set log level to reduce verbose output
-                  self.spark.sparkContext.setLogLevel("WARN")
+                  self.spark.sparkContext.setLogLevel("OFF")
                   
                   logger.info("✅ Spark Session initialized")
                   logger.info(f"   Spark Version: {self.spark.version}")
@@ -207,7 +203,7 @@ spec:
                   
                   # Check for missing values
                   logger.info("🔍 Missing Values Check:")
-                  missing_data = df.select([count(when(isnan(c) | col(c).isNull(), c)).alias(c) for c in df.columns])
+                  missing_data = df.select([count(when(col(c).isNull(), c)).alias(c) for c in df.columns])
                   missing_data.show()
                   
                   # Show value counts for categorical columns
