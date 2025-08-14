@@ -49,7 +49,7 @@ spec:
           fi
       containers:
       - name: spark-ml-pipeline
-        image: apache/spark-py:v3.5.0
+        image: apache/spark-py:latest
         command: ['sh', '-c']
         args:
         - |
@@ -58,7 +58,15 @@ spec:
           
           # Install additional Python packages
           echo "📦 Installing required Python packages..."
-          pip install --no-cache-dir pyspark minio
+          pip install --no-cache-dir --target /tmp/python-packages minio numpy
+          
+          # Set up Spark and Python paths
+          export SPARK_HOME=/opt/spark
+          export PY4J_ZIP=$(find $SPARK_HOME/python/lib -name "py4j-*.zip" | head -1)
+          export PYTHONPATH="$SPARK_HOME/python:$PY4J_ZIP:/tmp/python-packages"
+          echo "✅ SPARK_HOME: $SPARK_HOME"
+          echo "✅ PY4J_ZIP: $PY4J_ZIP"
+          echo "✅ PYTHONPATH: $PYTHONPATH"
           
           # Create the Spark ML pipeline script
           cat > /app/spark_ml_pipeline.py << 'PYSPARK'
@@ -464,14 +472,9 @@ spec:
               main()
           PYSPARK
           
-          # Set Spark environment variables
-          export SPARK_HOME=/opt/spark
-          export PYSPARK_PYTHON=python3
-          export PYTHONPATH=$SPARK_HOME/python:$PYTHONPATH
-          
           # Run the Spark ML pipeline
           echo "🚀 Starting Apache Spark ML Pipeline execution..."
-          python /app/spark_ml_pipeline.py
+          python3 /app/spark_ml_pipeline.py
           
           echo "✅ Apache Spark ML Pipeline completed!"
         env:
