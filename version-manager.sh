@@ -871,7 +871,10 @@ data_ingestion() {
         echo ''
         echo '📋 Pod Status:'
         kubectl get pods -n big-data
-        
+
+        echo 'Waiting for Ingestion job to complete...'
+        kubectl wait --for=condition=complete job/data-ingestion-job -n big-data --timeout=180s || echo 'Ingestion job taking longer than expected...'
+
         # Cleanup temp files
         rm -f /tmp/data-ingestion-job.yaml
     "
