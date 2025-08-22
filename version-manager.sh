@@ -41,6 +41,13 @@ show_help() {
     echo "  spark-ml-pipeline      - Run Apache Spark ML pipeline"
     echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
     echo ""
+    echo "  Kafka Commands:"
+    echo "  setup-kafka            - Install Kafka cluster"
+    echo "  create-kafka-topic <name> [partitions] [replication] - Create Kafka topic"
+    echo "  list-kafka-topics      - List all Kafka topics"
+    echo "  kafka-status           - Show Kafka cluster status"
+    echo "  cleanup-kafka          - Delete Kafka cluster"
+    echo ""
     echo "Examples:"
     echo "  $0 deploy v1.0"
     echo "  $0 zero-downtime v1.1"
@@ -1031,7 +1038,179 @@ cleanup_ml_jobs() {
         echo '✅ ML jobs cleanup completed!'
     "
 }
+# ========================================
+# Aufgabe 5
+# KAFKA CLUSTER FUNCTIONS
+# ========================================
 
+setup_kafka_cluster() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "Setting up Kafka Cluster"
+    echo "======================================="
+    
+    # --- Local paths to YAML files ---
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local kafka_yaml="$script_dir/big-data/kafka-cluster.yaml"
+    if [ ! -f "$kafka_yaml" ]; then
+        echo "❌ kafka-cluster.yaml not found: $kafka_yaml"
+        exit 1
+    fi
+    
+    # Copy YAML files to remote server
+    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$kafka_yaml" ubuntu@$master_ip:/tmp/kafka-cluster.yaml
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo 'Installing Kafka Cluster...'
+        kubectl apply -f /tmp/kafka-cluster.yaml
+        
+        echo 'Waiting for Zookeeper to be ready...'
+        kubectl wait --for=condition=available --timeout=300s deployment/zookeeper -n kafka || echo 'Zookeeper taking longer than expected...'
+        
+        echo 'Waiting for Kafka Broker to be ready...'
+        kubectl wait --for=condition=available --timeout=300s deployment/kafka-broker -n kafka || echo 'Kafka broker taking longer than expected...'
+        
+        echo 'Waiting for Kafka Manager to be ready...'
+        kubectl wait --for=condition=available --timeout=300s deployment/kafka-manager -n kafka || echo 'Kafka manager taking longer than expected...'
+        
+        echo 'Kafka Cluster Status:'
+        kubectl get pods -n kafka
+        
+        echo '✅ Kafka Cluster setup complete!'
+        echo 'Kafka Broker: $master_ip:30092'
+        echo 'Kafka Manager UI: http://$master_ip:30910'
+        
+        echo 'Cleaning up temp files...'
+        rm -f /tmp/kafka-cluster.yaml
+    "
+}
+
+create_kafka_topic() {
+    local topic_name=$1
+    local partitions=${2:-3}
+    local replication=${3:-1}
+    
+    if [ -z "$topic_name" ]; then
+        echo "❌ Topic name required"
+        echo "Usage: ./version-manager.sh create-kafka-topic <topic-name> [partitions] [replication-factor]"
+        exit 1
+    fi
+    
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "Creating Kafka Topic: $topic_name (partitions: $partitions, replication: $replication)"
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        # Run kafka-topics command inside the kafka broker pod
+        KAFKA_POD=\$(kubectl get pods -n kafka -l app=kafka -o jsonpath='{.items[0].metadata.name}')
+        
+        echo 'Using Kafka pod: '\$KAFKA_POD
+        
+        kubectl exec -n kafka \$KAFKA_POD -- \
+          kafka-topics --create --topic $topic_name \
+          --partitions $partitions \
+          --replication-factor $replication \
+          --bootstrap-server kafka-service:9092
+          
+        echo 'Topic $topic_name created successfully!'
+        echo 'Listing all topics:'
+        kubectl exec -n kafka \$KAFKA_POD -- \
+          kafka-topics --list --bootstrap-server kafka-service:9092
+    "
+}
+
+list_kafka_topics() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "Listing Kafka Topics"
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        # Run kafka-topics command inside the kafka broker pod
+        KAFKA_POD=\$(kubectl get pods -n kafka -l app=kafka -o jsonpath='{.items[0].metadata.name}')
+        
+        echo 'Using Kafka pod: '\$KAFKA_POD
+        
+        echo 'Available Kafka topics:'
+        kubectl exec -n kafka \$KAFKA_POD -- \
+          kafka-topics --list --bootstrap-server kafka-service:9092
+    "
+}
+
+kafka_status() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "Kafka Cluster Status"
+    echo "===================="
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '=== Kafka Pods ==='
+        kubectl get pods -n kafka
+        
+        echo '=== Kafka Services ==='
+        kubectl get svc -n kafka
+        
+        echo '=== Kafka Broker Details ==='
+        KAFKA_POD=\$(kubectl get pods -n kafka -l app=kafka -o jsonpath='{.items[0].metadata.name}')
+        if [ -n \"\$KAFKA_POD\" ]; then
+            echo 'Broker Pod: '\$KAFKA_POD
+            kubectl exec -n kafka \$KAFKA_POD -- kafka-broker-api-versions --bootstrap-server kafka-service:9092
+        else
+            echo 'No Kafka broker pod found'
+        fi
+        
+        echo '=== Access Information ==='
+        echo 'Kafka Broker: $master_ip:30092'
+        echo 'Kafka Manager UI: http://$master_ip:30910'
+    "
+}
+
+cleanup_kafka() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "🧹 Cleaning up Kafka Cluster..."
+    read -p "Are you sure you want to delete the Kafka cluster? (y/N): " -n 1 -r
+    echo
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+            echo 'Deleting Kafka namespace and all resources...'
+            kubectl delete namespace kafka
+            echo '✅ Kafka cluster removed successfully'
+        "
+    else
+        echo "Cleanup cancelled"
+    fi
+}
 
 # Command handling
 case $1 in
@@ -1079,6 +1258,21 @@ case $1 in
         ;;
     "cleanup-ml-jobs")
         cleanup_ml_jobs
+        ;;
+    "setup-kafka")
+        setup_kafka_cluster
+        ;;
+    "create-kafka-topic")
+        create_kafka_topic $2 $3 $4
+        ;;
+    "list-kafka-topics")
+        list_kafka_topics
+        ;;
+    "kafka-status")
+        kafka_status
+        ;;
+    "cleanup-kafka")
+        cleanup_kafka
         ;;
     *)
         show_help
