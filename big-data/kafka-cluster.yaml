@@ -1,16 +1,40 @@
+# Apache Kafka Cluster für Big Data Stream Processing - Korrigierte Version
+# Aufgabe 5: Horizontale Skalierbarkeit mit Kafka
+# Diese Konfiguration funktioniert sofort ohne manuelle Eingriffe
+
+---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: kafka
   labels:
-    name: kafka
+    app: kafka-cluster
+
 ---
-# Zookeeper Deployment
+# Zookeeper Service (für Kafka Koordination)
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: kafka
+  labels:
+    app: zookeeper
+spec:
+  ports:
+  - port: 2181
+    name: client
+  selector:
+    app: zookeeper
+
+---
+# Zookeeper Deployment - Stabil und einfach
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: zookeeper
   namespace: kafka
+  labels:
+    app: zookeeper
 spec:
   replicas: 1
   selector:
@@ -31,35 +55,68 @@ spec:
           value: "2181"
         - name: ZOOKEEPER_TICK_TIME
           value: "2000"
+        - name: ZOOKEEPER_SERVER_ID
+          value: "1"
         resources:
           requests:
             memory: "256Mi"
-            cpu: "250m"
+            cpu: "100m"
           limits:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "300m"
+        readinessProbe:
+          tcpSocket:
+            port: 2181
+          initialDelaySeconds: 30
+          periodSeconds: 10
+
 ---
-# Zookeeper Service
+# Kafka Headless Service für interne Kommunikation
 apiVersion: v1
 kind: Service
 metadata:
-  name: zookeeper-service
+  name: kafka-headless
   namespace: kafka
+  labels:
+    app: kafka
 spec:
-  selector:
-    app: zookeeper
   ports:
-  - port: 2181
-    targetPort: 2181
+  - port: 9092
+    name: kafka-port
+  clusterIP: None
+  selector:
+    app: kafka
+
 ---
-# Kafka Broker Deployment
+# Kafka External Service für Client-Zugriff
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-external
+  namespace: kafka
+  labels:
+    app: kafka
+spec:
+  type: NodePort
+  ports:
+  - port: 9092
+    targetPort: 9092
+    nodePort: 30092
+    name: kafka-external
+  selector:
+    app: kafka
+
+---
+# Kafka Deployment - Korrigierte Konfiguration ohne StatefulSet-Komplexität
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kafka-broker
+  name: kafka
   namespace: kafka
+  labels:
+    app: kafka
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: kafka
@@ -73,69 +130,72 @@ spec:
         image: confluentinc/cp-kafka:7.4.0
         ports:
         - containerPort: 9092
-        - containerPort: 9093
         env:
+        # FIX: BROKER_ID muss eine Zahl sein, nicht der Pod-Name
         - name: KAFKA_BROKER_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.uid
+          value: "1"
         - name: KAFKA_ZOOKEEPER_CONNECT
-          value: "zookeeper-service:2181"
-        - name: KAFKA_LISTENERS
-          value: "PLAINTEXT://:9092,EXTERNAL://:9093"
-        - name: KAFKA_ADVERTISED_LISTENERS
-          value: "PLAINTEXT://kafka-service.kafka.svc.cluster.local:9092,EXTERNAL://$(NODE_IP):30092"
-        - name: KAFKA_INTER_BROKER_LISTENER_NAME
-          value: "PLAINTEXT"
+          value: "zookeeper:2181"
+        # FIX: Vereinfachte Listener-Konfiguration
         - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
-          value: "PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+          value: "PLAINTEXT:PLAINTEXT"
+        - name: KAFKA_LISTENERS
+          value: "PLAINTEXT://0.0.0.0:9092"
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: "PLAINTEXT://kafka-headless:9092"
+        # FIX: Replication Factor auf 1 (Single Broker Setup)
         - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
           value: "1"
-        - name: NODE_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.hostIP
-        - name: NODE_PORT
-          value: "30092"
+        - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_MIN_INSYNC_REPLICAS
+          value: "1"
+        - name: KAFKA_NUM_PARTITIONS
+          value: "3"
         - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
           value: "true"
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+        - name: KAFKA_LOG_RETENTION_HOURS
+          value: "24"
+        # FIX: Konservative Memory-Einstellungen für Stabilität
+        - name: KAFKA_HEAP_OPTS
+          value: "-Xmx384M -Xms384M"
+        - name: KAFKA_JVM_PERFORMANCE_OPTS
+          value: "-server -XX:+UseG1GC -XX:MaxGCPauseMillis=20"
+        # Zusätzliche Stabilität-Settings
+        - name: KAFKA_LOG4J_LOGGERS
+          value: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
         resources:
           requests:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "200m"
           limits:
-            memory: "1Gi"
-            cpu: "1000m"
+            memory: "768Mi"
+            cpu: "500m"
+        # FIX: Großzügigere Probe-Timeouts
+        readinessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 90
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 3
+        livenessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 5
+
 ---
-# Kafka Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: kafka-service
-  namespace: kafka
-spec:
-  selector:
-    app: kafka
-  ports:
-  - name: internal
-    port: 9092
-    targetPort: 9092
-  - name: external
-    port: 9093
-    targetPort: 9093
-    nodePort: 30092
-  type: NodePort
----
-# Kafka Manager (CMAK) Deployment
+# Kafka Manager für Web-UI und einfache Verwaltung
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kafka-manager
   namespace: kafka
+  labels:
+    app: kafka-manager
 spec:
   replicas: 1
   selector:
@@ -153,28 +213,148 @@ spec:
         - containerPort: 9000
         env:
         - name: ZK_HOSTS
-          value: "zookeeper-service:2181"
+          value: "zookeeper:2181"
         - name: APPLICATION_SECRET
-          value: "random-secret"
+          value: "letmein"
         resources:
           requests:
             memory: "256Mi"
-            cpu: "250m"
+            cpu: "100m"
           limits:
             memory: "512Mi"
-            cpu: "500m"
+            cpu: "300m"
+
 ---
-# Kafka Manager Service
 apiVersion: v1
 kind: Service
 metadata:
   name: kafka-manager-service
   namespace: kafka
-spec:
-  selector:
+  labels:
     app: kafka-manager
+spec:
+  type: NodePort
   ports:
   - port: 9000
     targetPort: 9000
-    nodePort: 30910
-  type: NodePort
+    nodePort: 30900
+  selector:
+    app: kafka-manager
+
+---
+# Demo Topic Creation Job - läuft automatisch nach Kafka-Start
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-setup-topics
+  namespace: kafka
+  labels:
+    app: kafka-setup
+spec:
+  # Job wird nur einmal ausgeführt
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: kafka-setup
+        image: confluentinc/cp-kafka:7.4.0
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "🔍 Waiting for Kafka to be ready..."
+          
+          # Warten auf Kafka mit Retry-Logic
+          for i in {1..20}; do
+            echo "Attempt $i/20: Checking Kafka readiness..."
+            if kafka-topics --bootstrap-server kafka-headless:9092 --list >/dev/null 2>&1; then
+              echo "✅ Kafka is ready!"
+              break
+            else
+              echo "⏳ Kafka not ready yet, waiting 15 seconds..."
+              sleep 15
+            fi
+            
+            if [ $i -eq 20 ]; then
+              echo "❌ Timeout waiting for Kafka"
+              exit 1
+            fi
+          done
+          
+          echo "📝 Creating demo topics for stream processing..."
+          
+          # Demo Topics für verschiedene Use Cases erstellen
+          kafka-topics --bootstrap-server kafka-headless:9092 --create --topic demo-topic \
+            --partitions 3 --replication-factor 1 --if-not-exists
+            
+          kafka-topics --bootstrap-server kafka-headless:9092 --create --topic user-events \
+            --partitions 6 --replication-factor 1 --if-not-exists
+            
+          kafka-topics --bootstrap-server kafka-headless:9092 --create --topic sensor-data \
+            --partitions 9 --replication-factor 1 --if-not-exists
+            
+          kafka-topics --bootstrap-server kafka-headless:9092 --create --topic processed-events \
+            --partitions 3 --replication-factor 1 --if-not-exists
+          
+          echo "📋 Topics created successfully! List of topics:"
+          kafka-topics --bootstrap-server kafka-headless:9092 --list
+          
+          echo "📊 Topic details:"
+          kafka-topics --bootstrap-server kafka-headless:9092 --describe
+          
+          echo "✅ Kafka setup complete!"
+
+---
+# Stream Processing Demo Job - Kann manuell gestartet werden
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-stream-demo
+  namespace: kafka
+  labels:
+    app: kafka-demo
+spec:
+  # Dieser Job läuft nicht automatisch - nur bei Bedarf
+  suspend: true
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: stream-demo
+        image: confluentinc/cp-kafka:7.4.0
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "🚀 Starting Kafka Stream Processing Demo"
+          echo "========================================"
+          
+          # Producer für Demo-Daten
+          echo "📤 Producing sample stream data..."
+          for i in {1..100}; do
+            timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+            user_id=$((RANDOM % 1000))
+            action_id=$((RANDOM % 10))
+            
+            # User Events
+            echo "{'timestamp':'$timestamp','user_id':$user_id,'action':'click','page_id':$action_id}" | \
+              kafka-console-producer --bootstrap-server kafka-headless:9092 --topic user-events
+            
+            # Sensor Data  
+            temp=$((RANDOM % 40 + 10))
+            humidity=$((RANDOM % 100))
+            echo "{'timestamp':'$timestamp','sensor_id':'sensor_$((RANDOM % 50))','temperature':$temp,'humidity':$humidity}" | \
+              kafka-console-producer --bootstrap-server kafka-headless:9092 --topic sensor-data
+            
+            sleep 0.1
+          done
+          
+          echo "✅ Demo data production completed!"
+          echo "📊 Stream processing demo finished successfully!"
+          
+          # Zeige einige Nachrichten als Beispiel
+          echo "📋 Sample messages from demo-topic:"
+          kafka-console-consumer --bootstrap-server kafka-headless:9092 --topic user-events \
+            --from-beginning --max-messages 5 --timeout-ms 10000 || echo "No messages to display"

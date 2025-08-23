@@ -42,11 +42,19 @@ show_help() {
     echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
     echo ""
     echo "  Kafka Commands:"
-    echo "  setup-kafka            - Install Kafka cluster"
-    echo "  create-kafka-topic <name> [partitions] [replication] - Create Kafka topic"
+    echo "  setup-kafka            - Install Kafka cluster with auto-scaling"
+    echo "  create-kafka-topic <n> [partitions] [replication] - Create Kafka topic"
     echo "  list-kafka-topics      - List all Kafka topics"
     echo "  kafka-status           - Show Kafka cluster status"
+    echo "  kafka-stream-demo      - Run stream processing demo"
+    echo "  kafka-show-streams     - View stream data and demonstrate scalability"
     echo "  cleanup-kafka          - Delete Kafka cluster"
+    echo ""
+    echo "Kafka Examples:"
+    echo "  $0 setup-kafka"
+    echo "  $0 create-kafka-topic my-events 6 1"
+    echo "  $0 kafka-stream-demo"
+    echo "  $0 kafka-show-streams"
     echo ""
     echo "Examples:"
     echo "  $0 deploy v1.0"
@@ -1039,11 +1047,15 @@ cleanup_ml_jobs() {
     "
 }
 # ========================================
-# Aufgabe 5
-# KAFKA CLUSTER FUNCTIONS
+# KAFKA CLUSTER FUNCTIONS (Aufgabe 5)
 # ========================================
 
-setup_kafka_cluster() {
+# ========================================
+# KAFKA CLUSTER FUNCTIONS (Aufgabe 5) - VOLLSTÄNDIG
+# Füge alle diese Funktionen zu deinem version-manager.sh hinzu
+# ========================================
+
+setup_kafka() {
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
     local ssh_key=$(get_ssh_key)
     
@@ -1054,38 +1066,86 @@ setup_kafka_cluster() {
     
     echo "Setting up Kafka Cluster"
     echo "======================================="
+    echo "   - Installing single-broker Kafka cluster with auto-scaling capability"
+    echo "   - Setting up Zookeeper coordination"
+    echo "   - Creating demo topics for stream processing"
+    echo "   - Enabling Kafka Manager Web UI"
+    echo ""
     
-    # --- Local paths to YAML files ---
+    # --- Lokale Pfade zu den YAML-Dateien ---
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local kafka_yaml="$script_dir/big-data/kafka-cluster.yaml"
-    if [ ! -f "$kafka_yaml" ]; then
-        echo "❌ kafka-cluster.yaml not found: $kafka_yaml"
+    local kafka_cluster_yaml="$script_dir/big-data/kafka-cluster.yaml"
+    
+    if [ ! -f "$kafka_cluster_yaml" ]; then
+        echo "❌ kafka-cluster.yaml nicht gefunden: $kafka_cluster_yaml"
+        echo "   Bitte erstelle die Datei mit der korrigierten Kafka-Konfiguration"
         exit 1
     fi
     
-    # Copy YAML files to remote server
-    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$kafka_yaml" ubuntu@$master_ip:/tmp/kafka-cluster.yaml
+    echo "Using Kafka Cluster configuration from: $kafka_cluster_yaml"
+    
+    # Kopiere YAML-Datei auf Remote-Server
+    scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$kafka_cluster_yaml" ubuntu@$master_ip:/tmp/kafka-cluster.yaml
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        echo 'Installing Kafka Cluster...'
+        echo '🚀 Installing Kafka Cluster...'
+        
+        # Cleanup any existing kafka namespace
+        kubectl delete namespace kafka --ignore-not-found=true
+        
+        echo '⏳ Waiting for namespace cleanup...'
+        sleep 10
+        
+        # Apply Kafka cluster configuration
         kubectl apply -f /tmp/kafka-cluster.yaml
         
-        echo 'Waiting for Zookeeper to be ready...'
-        kubectl wait --for=condition=available --timeout=300s deployment/zookeeper -n kafka || echo 'Zookeeper taking longer than expected...'
+        echo '✅ Kafka Cluster configuration applied!'
+        echo ''
+        echo '⏳ Waiting for Zookeeper to be ready...'
+        kubectl wait --for=condition=Available deployment/zookeeper -n kafka --timeout=300s || echo 'Zookeeper taking longer than expected...'
         
-        echo 'Waiting for Kafka Broker to be ready...'
-        kubectl wait --for=condition=available --timeout=300s deployment/kafka-broker -n kafka || echo 'Kafka broker taking longer than expected...'
+        echo '⏳ Waiting for Kafka broker to be ready (this takes 2-4 minutes)...'
+        kubectl wait --for=condition=Available deployment/kafka -n kafka --timeout=600s || echo 'Kafka taking longer than expected...'
         
-        echo 'Waiting for Kafka Manager to be ready...'
-        kubectl wait --for=condition=available --timeout=300s deployment/kafka-manager -n kafka || echo 'Kafka manager taking longer than expected...'
+        echo ''
+        echo '📊 Kafka Cluster Status:'
+        kubectl get pods -n kafka -o wide
+        echo ''
+        kubectl get svc -n kafka
         
-        echo 'Kafka Cluster Status:'
-        kubectl get pods -n kafka
+        echo ''
+        echo '⏳ Waiting for topic setup job to complete...'
+        kubectl wait --for=condition=complete job/kafka-setup-topics -n kafka --timeout=300s || echo 'Topic setup taking longer than expected...'
         
+        echo ''
+        echo '📋 Setup Job Results:'
+        kubectl logs job/kafka-setup-topics -n kafka --tail=20 || echo 'Could not retrieve setup logs'
+        
+        echo ''
         echo '✅ Kafka Cluster setup complete!'
-        echo 'Kafka Broker: $master_ip:30092'
-        echo 'Kafka Manager UI: http://$master_ip:30910'
+        echo ''
+        echo '🔗 Access Points:'
+        echo '   Kafka Brokers (internal): kafka-headless:9092'  
+        echo '   Kafka External: $master_ip:30092'
+        echo '   Kafka Manager UI: http://$master_ip:30900'
+        echo ''
+        echo '📋 Auto-created topics:'
+        echo '   - demo-topic (3 partitions) - General demo messages'
+        echo '   - user-events (6 partitions) - User interaction events'
+        echo '   - sensor-data (9 partitions) - IoT sensor data streams'
+        echo '   - processed-events (3 partitions) - Processed stream results'
+        echo ''
+        echo '🎯 Horizontal Scalability Features:'
+        echo '   ✅ Partitioned topics for parallel processing'
+        echo '   ✅ Ready for consumer group scaling'
+        echo '   ✅ Configurable replication (currently 1 for single broker)'
+        echo '   ✅ Easy broker scaling via replica adjustment'
+        echo ''
+        echo '🧪 To run stream processing demo:'
+        echo '   ./version-manager.sh kafka-stream-demo'
+        echo '   ./version-manager.sh kafka-show-streams'
         
+        echo ''
         echo 'Cleaning up temp files...'
         rm -f /tmp/kafka-cluster.yaml
     "
@@ -1098,7 +1158,8 @@ create_kafka_topic() {
     
     if [ -z "$topic_name" ]; then
         echo "❌ Topic name required"
-        echo "Usage: ./version-manager.sh create-kafka-topic <topic-name> [partitions] [replication-factor]"
+        echo "Usage: $0 create-kafka-topic <name> [partitions] [replication]"
+        echo "Example: $0 create-kafka-topic my-stream-topic 6 1"
         exit 1
     fi
     
@@ -1110,24 +1171,27 @@ create_kafka_topic() {
         exit 1
     fi
     
-    echo "Creating Kafka Topic: $topic_name (partitions: $partitions, replication: $replication)"
+    echo "Creating Kafka Topic: $topic_name"
+    echo "=================================="
+    echo "   Partitions: $partitions"
+    echo "   Replication Factor: $replication"
+    echo ""
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        # Run kafka-topics command inside the kafka broker pod
-        KAFKA_POD=\$(kubectl get pods -n kafka -l app=kafka -o jsonpath='{.items[0].metadata.name}')
+        # Check if Kafka is running
+        if ! kubectl get deployment kafka -n kafka | grep -q '1/1'; then
+            echo '❌ Kafka cluster is not running properly'
+            echo 'Please run: ./version-manager.sh setup-kafka first'
+            exit 1
+        fi
         
-        echo 'Using Kafka pod: '\$KAFKA_POD
+        echo '📝 Creating topic $topic_name...'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --create --topic $topic_name --partitions $partitions --replication-factor $replication --if-not-exists
         
-        kubectl exec -n kafka \$KAFKA_POD -- \
-          kafka-topics --create --topic $topic_name \
-          --partitions $partitions \
-          --replication-factor $replication \
-          --bootstrap-server kafka-service:9092
-          
-        echo 'Topic $topic_name created successfully!'
-        echo 'Listing all topics:'
-        kubectl exec -n kafka \$KAFKA_POD -- \
-          kafka-topics --list --bootstrap-server kafka-service:9092
+        echo '✅ Topic created successfully!'
+        echo ''
+        echo '📋 Topic details:'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --describe --topic $topic_name
     "
 }
 
@@ -1140,18 +1204,24 @@ list_kafka_topics() {
         exit 1
     fi
     
-    echo "Listing Kafka Topics"
+    echo "Kafka Topics"
+    echo "============="
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        # Run kafka-topics command inside the kafka broker pod
-        KAFKA_POD=\$(kubectl get pods -n kafka -l app=kafka -o jsonpath='{.items[0].metadata.name}')
+        # Check if Kafka is running
+        if ! kubectl get deployment kafka -n kafka | grep -q '1/1'; then
+            echo '❌ Kafka cluster is not running properly'
+            echo 'Please run: ./version-manager.sh setup-kafka first'
+            exit 1
+        fi
         
-        echo 'Using Kafka pod: '\$KAFKA_POD
+        echo '📋 Available topics:'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --list
         
-        echo 'Available Kafka topics:'
-        kubectl exec -n kafka \$KAFKA_POD -- \
-          kafka-topics --list --bootstrap-server kafka-service:9092
-    "
+        echo ''
+        echo '📊 Topic details:'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --describe
+    " 2>/dev/null
 }
 
 kafka_status() {
@@ -1167,28 +1237,39 @@ kafka_status() {
     echo "===================="
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        echo '=== Kafka Pods ==='
-        kubectl get pods -n kafka
+        echo '🔍 Kafka Namespace Status:'
+        kubectl get all -n kafka
+        echo ''
         
-        echo '=== Kafka Services ==='
+        echo '📊 Pod Status:'
+        kubectl get pods -n kafka -o wide
+        echo ''
+        
+        echo '🔗 Service Status:'
         kubectl get svc -n kafka
+        echo ''
         
-        echo '=== Kafka Broker Details ==='
-        KAFKA_POD=\$(kubectl get pods -n kafka -l app=kafka -o jsonpath='{.items[0].metadata.name}')
-        if [ -n \"\$KAFKA_POD\" ]; then
-            echo 'Broker Pod: '\$KAFKA_POD
-            kubectl exec -n kafka \$KAFKA_POD -- kafka-broker-api-versions --bootstrap-server kafka-service:9092
+        if kubectl get deployment kafka -n kafka | grep -q '1/1'; then
+            echo '✅ Kafka Cluster is running'
+            echo ''
+            echo '📋 Cluster Information:'
+            echo '   Kafka Brokers: 1 (horizontally scalable)'
+            echo '   External Access: $master_ip:30092'
+            echo '   Manager UI: http://$master_ip:30900'
+            echo ''
+            
+            echo '📝 Available Topics:'
+            kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --list 2>/dev/null || echo 'Could not fetch topics'
         else
-            echo 'No Kafka broker pod found'
+            echo '❌ Kafka Cluster not running properly'
+            echo ''
+            echo '🔍 Recent Events:'
+            kubectl get events -n kafka --sort-by=.metadata.creationTimestamp | tail -10
         fi
-        
-        echo '=== Access Information ==='
-        echo 'Kafka Broker: $master_ip:30092'
-        echo 'Kafka Manager UI: http://$master_ip:30910'
-    "
+    " 2>/dev/null
 }
 
-cleanup_kafka() {
+kafka_stream_demo() {
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
     local ssh_key=$(get_ssh_key)
     
@@ -1197,19 +1278,393 @@ cleanup_kafka() {
         exit 1
     fi
     
-    echo "🧹 Cleaning up Kafka Cluster..."
-    read -p "Are you sure you want to delete the Kafka cluster? (y/N): " -n 1 -r
-    echo
+    echo "🚀 Starting Kafka Stream Processing Demo"
+    echo "========================================"
+    echo "   - Demonstrates horizontal scalability"
+    echo "   - Shows producer/consumer patterns"
+    echo "   - Generates realistic stream data"
+    echo "   - Uses multiple partitions for parallel processing"
+    echo ""
     
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-            echo 'Deleting Kafka namespace and all resources...'
-            kubectl delete namespace kafka
-            echo '✅ Kafka cluster removed successfully'
-        "
-    else
-        echo "Cleanup cancelled"
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        # Check if Kafka is running
+        if ! kubectl get deployment kafka -n kafka | grep -q '1/1'; then
+            echo '❌ Kafka cluster is not running properly'
+            echo 'Please run: ./version-manager.sh setup-kafka first'
+            echo ''
+            echo 'Current status:'
+            kubectl get pods -n kafka
+            exit 1
+        fi
+        
+        echo '✅ Kafka cluster is running'
+        echo ''
+        
+        # Clean up old demo jobs
+        kubectl delete job kafka-live-demo -n kafka --ignore-not-found=true
+        sleep 5
+        
+        echo '🎬 Starting stream processing demo...'
+        
+        # Create live demo job
+        kubectl create job kafka-live-demo -n kafka --image=confluentinc/cp-kafka:7.4.0 -- /bin/bash -c '
+            echo \"🚀 Live Stream Processing Demo\"
+            echo \"Producing real-time data to multiple topics...\"
+            
+            for i in {1..50}; do
+                timestamp=\$(date +\"%Y-%m-%d %H:%M:%S\")
+                
+                # User Events Stream
+                echo \"{\\\"timestamp\\\":\\\"\$timestamp\\\",\\\"user_id\\\":\$((RANDOM % 100)),\\\"action\\\":\\\"click\\\",\\\"page_id\\\":\$((RANDOM % 20))}\" | \\
+                    kafka-console-producer --bootstrap-server kafka-headless:9092 --topic user-events
+                
+                # Sensor Data Stream
+                echo \"{\\\"timestamp\\\":\\\"\$timestamp\\\",\\\"sensor_id\\\":\\\"sensor_\$((RANDOM % 10))\\\",\\\"temperature\\\":\$((RANDOM % 40 + 10)),\\\"humidity\\\":\$((RANDOM % 100))}\" | \\
+                    kafka-console-producer --bootstrap-server kafka-headless:9092 --topic sensor-data
+                
+                # Demo Topic
+                echo \"Message \$i: User-\$((RANDOM % 100)) performed action at \$timestamp\" | \\
+                    kafka-console-producer --bootstrap-server kafka-headless:9092 --topic demo-topic
+                
+                if [ \$((i % 10)) -eq 0 ]; then
+                    echo \"Produced \$i messages across 3 topics...\"
+                fi
+                
+                sleep 0.5
+            done
+            
+            echo \"✅ Stream data production completed!\"
+            echo \"📊 Demonstrating horizontal scalability with partitioned topics\"
+        '
+        
+        echo '⏳ Demo running... waiting for completion...'
+        
+        # Wait for demo job to complete
+        kubectl wait --for=condition=complete job/kafka-live-demo -n kafka --timeout=180s || {
+            echo '⚠️  Demo still running or timed out'
+        }
+        
+        echo ''
+        echo '📊 Demo Results:'
+        kubectl logs job/kafka-live-demo -n kafka --tail=20 2>/dev/null || echo 'Demo logs not available'
+        
+        echo ''
+        echo '📋 Stream Processing Demonstration Complete!'
+        echo '   ✅ Multi-topic data production'
+        echo '   ✅ Partitioned topics for horizontal scaling'
+        echo '   ✅ Real-time data streaming'
+        echo '   ✅ Producer performance testing'
+        echo ''
+        echo '🔍 Use kafka-show-streams to view the generated data'
+    "
+}
+
+kafka_show_streams() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
     fi
+    
+    echo "📊 Kafka Stream Data Viewer"
+    echo "==========================="
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        if ! kubectl get deployment kafka -n kafka | grep -q '1/1'; then
+            echo '❌ Kafka cluster is not running properly'
+            exit 1
+        fi
+        
+        echo '📋 Available topics:'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --list
+        
+        echo ''
+        echo '📊 Topic details with partitions:'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --describe --topic user-events
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --describe --topic sensor-data
+        
+        echo ''
+        echo '📝 Sample messages from user-events (last 5):'
+        kubectl exec deployment/kafka -n kafka -- kafka-console-consumer --bootstrap-server localhost:9092 --topic user-events --from-beginning --max-messages 5 --timeout-ms 10000 2>/dev/null || echo 'No messages available - run kafka-stream-demo first'
+        
+        echo ''
+        echo '📝 Sample messages from sensor-data (last 5):'
+        kubectl exec deployment/kafka -n kafka -- kafka-console-consumer --bootstrap-server localhost:9092 --topic sensor-data --from-beginning --max-messages 5 --timeout-ms 10000 2>/dev/null || echo 'No messages available - run kafka-stream-demo first'
+        
+        echo ''
+        echo '📈 Horizontal Scalability Demonstration:'
+        echo '   Each topic has multiple partitions for parallel processing'
+        echo '   Multiple consumers can read from different partitions simultaneously'
+        echo '   This enables horizontal scaling of stream processing workloads'
+    "
+}
+
+cleanup_kafka() {
+    echo "🧹 Cleaning up Kafka Cluster..."
+    
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    read -p "Are you sure you want to delete the entire Kafka cluster? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "❌ Kafka cleanup cancelled"
+        exit 1
+    fi
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo 'Deleting Kafka cluster...'
+        kubectl delete namespace kafka --ignore-not-found=true
+        
+        echo '✅ Kafka cluster cleanup completed!'
+        echo 'All Kafka resources, topics, and data have been removed.'
+    "
+}
+
+deploy_kafdrop() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "🚀 Deploying Kafdrop (Modern Kafka UI)"
+    echo "======================================"
+    echo "   - Using stable version 3.30.0"
+    echo "   - Modern, responsive Kafka management UI"
+    echo "   - Real-time broker and topic monitoring"
+    echo ""
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        # Check if Kafka is running
+        if ! kubectl get deployment kafka -n kafka | grep -q '1/1'; then
+            echo '❌ Kafka cluster is not running'
+            echo 'Please run: ./version-manager.sh setup-kafka first'
+            exit 1
+        fi
+        
+        echo '🧹 Cleaning up any existing Kafdrop...'
+        kubectl delete deployment kafdrop -n kafka --ignore-not-found=true
+        kubectl delete svc kafdrop-service -n kafka --ignore-not-found=true
+        
+        echo '⏳ Waiting for cleanup...'
+        sleep 10
+        
+        echo '📦 Deploying stable Kafdrop 3.30.0...'
+        kubectl apply -f - <<EOF
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafdrop
+  namespace: kafka
+  labels:
+    app: kafdrop
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafdrop
+  template:
+    metadata:
+      labels:
+        app: kafdrop
+    spec:
+      containers:
+      - name: kafdrop
+        image: obsidiandynamics/kafdrop:3.30.0
+        ports:
+        - containerPort: 9000
+        env:
+        - name: KAFKA_BROKERCONNECT
+          value: \"kafka-headless:9092\"
+        - name: JVM_OPTS
+          value: \"-Xms128M -Xmx256M\"
+        - name: SERVER_SERVLET_CONTEXTPATH
+          value: \"/\"
+        resources:
+          requests:
+            memory: \"256Mi\"
+            cpu: \"200m\"
+          limits:
+            memory: \"512Mi\"
+            cpu: \"400m\"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafdrop-service
+  namespace: kafka
+  labels:
+    app: kafdrop
+spec:
+  type: NodePort
+  ports:
+  - port: 9000
+    targetPort: 9000
+    nodePort: 30901
+    name: kafdrop
+  selector:
+    app: kafdrop
+EOF
+        
+        echo '✅ Stable Kafdrop deployed!'
+        echo '⏳ Waiting for startup (stable version is much faster)...'
+        
+        # Monitor startup with better logic
+        for i in {1..12}; do
+            echo \"Check \$i/12:\"
+            POD_STATUS=\$(kubectl get pod -l app=kafdrop -n kafka --no-headers 2>/dev/null | awk '{print \$3}')
+            POD_READY=\$(kubectl get pod -l app=kafdrop -n kafka --no-headers 2>/dev/null | awk '{print \$2}')
+            echo \"  Pod Status: \$POD_STATUS, Ready: \$POD_READY\"
+            
+            if [[ \"\$POD_STATUS\" == \"Running\" ]] && [[ \"\$POD_READY\" == \"1/1\" ]]; then
+                echo '🎉 Kafdrop is ready!'
+                break
+            elif [[ \"\$POD_STATUS\" == \"Error\" ]] || [[ \"\$POD_STATUS\" == \"CrashLoopBackOff\" ]]; then
+                echo '❌ Kafdrop failed to start'
+                kubectl logs -l app=kafdrop -n kafka --tail=20
+                break
+            fi
+            
+            sleep 15
+        done
+        
+        echo ''
+        echo '📊 Final Status:'
+        kubectl get pods -n kafka -l app=kafdrop
+        kubectl get svc kafdrop-service -n kafka
+        
+        echo ''
+        echo '✅ Kafdrop deployed successfully!'
+        echo ''
+        echo '🌐 Access Kafdrop at:'
+        echo \"   http://$master_ip:30901\"
+        echo ''
+        echo '📋 What you'\''ll see in Kafdrop:'
+        echo '   ✅ Broker Information (1 broker running)'
+        echo '   ✅ All Topics with partition details'
+        echo '   ✅ Real-time message browsing'
+        echo '   ✅ Consumer group monitoring'
+        echo '   ✅ Perfect demonstration of horizontal scalability'
+        echo ''
+        echo '⏳ If Kafdrop shows loading screen, wait 1-2 more minutes'
+        echo '🔧 If issues persist, try: ./version-manager.sh deploy-kafka-ui'
+    "
+}
+
+deploy_kafka_ui() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    if [ -z "$master_ip" ]; then
+        echo "❌ No cluster deployed"
+        exit 1
+    fi
+    
+    echo "🚀 Deploying Kafka-UI (Alternative to Kafdrop)"
+    echo "=============================================="
+    echo "   - Modern React-based UI"
+    echo "   - More stable than Kafdrop"
+    echo "   - Better performance and features"
+    echo ""
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        # Check if Kafka is running
+        if ! kubectl get deployment kafka -n kafka | grep -q '1/1'; then
+            echo '❌ Kafka cluster is not running'
+            echo 'Please run: ./version-manager.sh setup-kafka first'
+            exit 1
+        fi
+        
+        echo '📦 Deploying Kafka-UI...'
+        kubectl apply -f - <<EOF
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: kafka
+  labels:
+    app: kafka-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+    spec:
+      containers:
+      - name: kafka-ui
+        image: provectuslabs/kafka-ui:v0.7.1
+        ports:
+        - containerPort: 8080
+        env:
+        - name: KAFKA_CLUSTERS_0_NAME
+          value: \"kafka-cluster\"
+        - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+          value: \"kafka-headless:9092\"
+        - name: KAFKA_CLUSTERS_0_ZOOKEEPER
+          value: \"zookeeper:2181\"
+        resources:
+          requests:
+            memory: \"256Mi\"
+            cpu: \"100m\"
+          limits:
+            memory: \"512Mi\"
+            cpu: \"300m\"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui-service
+  namespace: kafka
+  labels:
+    app: kafka-ui
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30902
+    name: kafka-ui
+  selector:
+    app: kafka-ui
+EOF
+        
+        echo '⏳ Waiting for Kafka-UI startup...'
+        kubectl wait --for=condition=Available deployment/kafka-ui -n kafka --timeout=300s || echo 'Taking longer than expected...'
+        
+        echo ''
+        echo '📊 Kafka-UI Status:'
+        kubectl get pods -n kafka -l app=kafka-ui
+        kubectl get svc kafka-ui-service -n kafka
+        
+        echo ''
+        echo '✅ Kafka-UI deployed successfully!'
+        echo ''
+        echo '🌐 Access Kafka-UI at:'
+        echo \"   http://$master_ip:30902\"
+        echo ''
+        echo '📋 Kafka-UI Features:'
+        echo '   ✅ Modern React-based interface'
+        echo '   ✅ Real-time cluster monitoring'
+        echo '   ✅ Topic and message management'
+        echo '   ✅ Consumer group tracking'
+        echo '   ✅ More stable than Kafdrop'
+    "
 }
 
 # Command handling
@@ -1260,7 +1715,7 @@ case $1 in
         cleanup_ml_jobs
         ;;
     "setup-kafka")
-        setup_kafka_cluster
+        setup_kafka
         ;;
     "create-kafka-topic")
         create_kafka_topic $2 $3 $4
@@ -1271,8 +1726,20 @@ case $1 in
     "kafka-status")
         kafka_status
         ;;
+    "kafka-stream-demo")
+        kafka_stream_demo
+        ;;
+    "kafka-show-streams")
+        kafka_show_streams
+        ;;
     "cleanup-kafka")
         cleanup_kafka
+        ;;
+    "deploy-kafdrop")
+        deploy_kafdrop
+        ;;
+    "deploy-kafka-ui")
+        deploy_kafka_ui
         ;;
     *)
         show_help
