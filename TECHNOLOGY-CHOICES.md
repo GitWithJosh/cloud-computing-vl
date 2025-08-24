@@ -99,6 +99,20 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 
 ---
 
+## 📊 Stream Processing: **Apache Kafka + Kafka Streams**
+
+**Warum gewählt:**
+- **Horizontale Skalierbarkeit** durch partitionierte Topics (3, 6, 9 Partitionen)
+- **Hochperformantes Message Broker System** für Echtzeit-Datenströme
+- **Kafka Streams API** für stateful stream processing direkt in der Anwendung
+- **Consumer Groups** für parallele Verarbeitung und Lastverteilung
+- **Nahtlose Kubernetes-Integration** über leichtgewichtige Deployments
+- **Event-basierte Architektur** perfekt für Stream Processing Pipelines
+
+**Alternativen:** Apache Pulsar (komplexere Setup), RabbitMQ (geringere Durchsatzrate), NATS (weniger Ecosystem-Integration), Amazon Kinesis (Vendor Lock-in)
+
+---
+
 ## 🎯 Bonuspunkte-Features
 
 - ✅ **K3s statt Standard K8s** - Ressourceneffizient + Production-ready
@@ -107,3 +121,4 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 - ✅ **HPA + Monitoring** - Prometheus + Grafana Stack
 - ✅ **AI/ML Integration** - Google Gemini Bilderkennung
 - ✅ **MinIO Datalake** - Cloud Nativer Datalake
+- ✅ **Stream Processing mit ML** - 

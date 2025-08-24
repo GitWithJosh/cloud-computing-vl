@@ -6,6 +6,7 @@
 [![OpenStack](https://img.shields.io/badge/OpenStack-Cloud-red.svg)](https://openstack.org)
 [![Datalake](https://img.shields.io/badge/Datalake-MinIO-purple.svg)](https://www.min.io/)
 [![Apache Spark (Spark MLlib)](https://img.shields.io/badge/Batch_Verarbeitung-SparkMLlib-red.svg)](https://spark.apache.org/mllib/)
+[![Apache Kafka](https://img.shields.io/badge/Stream_Processing-ApacheKafka-231F20.svg)](https://kafka.apache.org/)
 
 > **Ein vollständiges Cloud Computing Projekt mit Immutable Infrastructure, Multi-Node Kubernetes, Zero-Downtime Deployments, Ingress Controller und KI-basierter Streamlit-Anwendung**
 
@@ -79,6 +80,7 @@ Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Comput
 | **Version Control** | Git + Semantic Versioning | Infrastructure & App Versioning | ✅ Zero-Downtime Deployments |
 | **Datalake** | MinIO | Datenspeicherung | ✅ Cloud Nativer Datalake |
 | **Big Data Processing** | Apache Spark + MLlib | Verteilte Batch-Verarbeitung | ✅ Skalierbare ML-Pipelines |
+| **Stream Processing** | Apache Kafka | Echtzeit-Datenverarbeitung | ✅ Horizontale Skalierbarkeit + ML-Integration |
 
 ## 🚀 Quick Start
 
@@ -447,6 +449,42 @@ ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 | **Workers joinen nicht** | Nur Master Node sichtbar | Cloud-init Logs prüfen |
 | **Service nicht erreichbar** | 404/Connection Refused | Security Groups & NodePort prüfen |
 
+### Big Data Stream Processing
+
+1. **Stream Processing Setup ausführen**
+   ```bash
+   ./version-manager.sh setup-kafka
+   ```
+
+2. **Kafka Topics erstellen**
+   ```bash
+   ./version-manager.sh create-kafka-topic sensor-data 9 1
+   ```
+
+3. **Stream Prozessoren deployen**
+   ```bash
+   ./version-manager.sh deploy-ml-stream-processor
+   ```
+
+4. **Stream Demo starten**
+   ```bash
+   ./version-manager.sh kafka-stream-demo
+   ```
+
+5. **Kafka UI für Monitoring starten**
+   ```bash
+   ./version-manager.sh deploy-kafka-ui
+   ./version-manager.sh open-kafka-ui
+   ```
+
+**Stream Processing Workflow:**
+- **Apache Kafka Cluster**: Hochperformanter Message Broker für Echtzeit-Streaming
+- **Horizontale Skalierbarkeit**: Partitionierte Topics (3, 6, 9 Partitionen) für parallele Verarbeitung
+- **Stream Prozessoren**: Mehrere Prozessor-Instanzen für verteilte Event-Verarbeitung
+- **ML-basierte Analyse**: Anomalieerkennung und Echtzeitüberwachung von Sensor-Daten
+- **Management Interfaces**: Kafka-UI, Kafdrop und Kafka Manager für umfassendes Monitoring
+- **Zugriff**: Kafka Manager unter `http://MASTER-IP:30900`, Kafka-UI unter `http://MASTER-IP:30902`
+
 ## 📚 Weiterführende Dokumentation
 
 ### Interne Dokumentation
@@ -476,6 +514,7 @@ ssh -i ~/.ssh/$SSH_KEY ubuntu@$MASTER_IP
 - [Kubernetes Documentation](https://kubernetes.io/docs/)
 - [MinIO Documentation](https://www.min.io/)
 - [Apache Spark Documentation](https://spark.apache.org/mllib/)
+- [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
 
 ## 📄 Lizenz
 
@@ -498,7 +537,3 @@ Dieses Projekt steht unter der MIT-Lizenz.
 # Scaling Demo starten
 ./scaling-demo.sh
 ``` 
-
----
-
-*Cloud Computing und Big Data - Portfolio-Prüfung*
