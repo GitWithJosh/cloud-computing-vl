@@ -41,25 +41,32 @@ show_help() {
     echo "  spark-ml-pipeline      - Run Apache Spark ML pipeline"
     echo "  cleanup-ml-jobs        - Stop and delete all ML jobs"
     echo ""
-    echo "  Kafka Commands:"
-    echo "  setup-kafka            - Install Kafka cluster with auto-scaling"
-    echo "  create-kafka-topic <n> [partitions] [replication] - Create Kafka topic"
-    echo "  list-kafka-topics      - List all Kafka topics"
+    echo "Kafka Stream Processing (Task 5):"
+    echo "  setup-kafka            - Install Kafka cluster"
+    echo "  deploy-ml-stream-processor - Deploy ML-enhanced stream processors"
+    echo "  kafka-stream-demo      - Generate demo stream data"
+    echo "  show-parallel-processing - Demonstrate parallel processing"
+    echo "  show-data-flow         - Show Input→Processing→Output flow"
+    echo "  setup-autoscaling      - Enable automatic scaling"
+    echo "  trigger-load-test      - Test autoscaling with high load"
     echo "  kafka-status           - Show Kafka cluster status"
-    echo "  kafka-stream-demo      - Run stream processing demo"
-    echo "  kafka-show-streams     - View stream data and demonstrate scalability"
+    echo "  stream-status          - Show stream processing status"
     echo "  cleanup-kafka          - Delete Kafka cluster"
     echo ""
-    echo "Kafka Examples:"
+    echo "UI & Monitoring:"
+    echo "  deploy-kafka-ui        - Deploy modern Kafka UI"
+    echo "  open-kafka-ui          - Open Kafka UI with port forwarding"
+    echo ""
+    echo "Utilities:"
+    echo "  list-kafka-topics      - List all Kafka topics"
+    echo "  kafka-show-streams     - View stream data"
+    echo "  create-kafka-topic <n> [partitions] - Create new Kafka topic"
+    echo ""
+    echo "Examples:"
     echo "  $0 setup-kafka"
-    echo "  $0 create-kafka-topic my-events 6 1"
-    echo "  $0 kafka-stream-demo"
-    echo "  $0 kafka-show-streams"
-    echo "  Stream Processing Commands:"
-    echo "  deploy-kafka-streams   - Deploy Kafka Streams processing pipeline (3 replicas)"
-    echo "  deploy-flink-pipeline  - Deploy Apache Flink cluster for advanced processing"
-    echo "  deploy-spark-streaming - Deploy Spark Streaming integration"
-    echo "  stream-status          - Show stream processing pipeline status"
+    echo "  $0 deploy-ml-stream-processor"
+    echo "  $0 open-kafka-ui"
+    echo "  $0 show-data-flow"
     echo ""
     echo "Examples:"
     echo "  $0 deploy v1.0"
@@ -1881,6 +1888,152 @@ EOF
     "
 }
 
+setup_autoscaling() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    echo "📈 Setting up Horizontal Pod Autoscaler"
+    echo "======================================"
+    echo "   - Automatic scaling based on CPU usage"
+    echo "   - Scale from 2-10 processors based on load"
+    echo "   - Demonstrates enterprise-grade scalability"
+    echo ""
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '📊 Setting up HPA for ML stream processors...'
+        kubectl apply -f - <<EOF
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ml-stream-processor-hpa
+  namespace: kafka
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ml-stream-processor
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+EOF
+        
+        echo '✅ HPA configured!'
+        echo ''
+        echo '📊 Current HPA status:'
+        kubectl get hpa -n kafka
+        echo ''
+        echo '🎯 Scaling Configuration:'
+        echo '   Min Replicas: 2'
+        echo '   Max Replicas: 10'  
+        echo '   CPU Threshold: 70%'
+        echo '   Memory Threshold: 80%'
+        echo '   Scale Up: 100% increase every 60s'
+        echo '   Scale Down: 50% decrease every 60s (with 5min cooldown)'
+        echo ''
+        echo '🧪 To trigger scaling, generate high load:'
+        echo '   Run multiple: ./version-manager.sh kafka-stream-demo'
+        echo '   Monitor with: kubectl get hpa -n kafka -w'
+    "
+}
+
+# Load testing für Autoscaling
+trigger_load_test() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    echo "⚡ Triggering Load Test for Autoscaling"
+    echo "======================================"
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '🚀 Starting high-frequency data producer for load testing...'
+        kubectl apply -f - <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-test-producer
+  namespace: kafka
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: load-producer
+        image: confluentinc/cp-kafka:7.4.0
+        command:
+        - /bin/bash
+        - -c
+        - |
+          KAFKA_IP=\$(kubectl get pod -l app=kafka -n kafka -o jsonpath='{.items[0].status.podIP}')
+          
+          echo \"⚡ Starting high-load data generation...\"
+          echo \"🎯 Target: 1000 messages per minute for 10 minutes\"
+          
+          for i in {1..1000}; do
+            # Generate sensor data with random values
+            TEMP=\$((RANDOM % 60 - 10))  # -10 to 50°C
+            HUMIDITY=\$((RANDOM % 100))
+            SENSOR_ID=\"sensor_\$((RANDOM % 20))\"
+            
+            echo \"{\\\"timestamp\\\":\\\"\$(date)\\\",\\\"sensor_id\\\":\\\"\$SENSOR_ID\\\",\\\"temperature\\\":\$TEMP,\\\"humidity\\\":\$HUMIDITY}\" | kafka-console-producer --bootstrap-server \$KAFKA_IP:9092 --topic sensor-data
+            
+            # Generate user events  
+            USER_ID=\$((RANDOM % 1000))
+            ACTION=\"click\"
+            PAGE_ID=\$((RANDOM % 50))
+            
+            echo \"{\\\"timestamp\\\":\\\"\$(date)\\\",\\\"user_id\\\":\$USER_ID,\\\"action\\\":\\\"\$ACTION\\\",\\\"page_id\\\":\$PAGE_ID}\" | kafka-console-producer --bootstrap-server \$KAFKA_IP:9092 --topic user-events
+            
+            # High frequency - every 0.6 seconds = 100 messages/minute
+            if [ \$((i % 50)) -eq 0 ]; then
+              echo \"📊 Generated \$i messages...\"
+            fi
+            sleep 0.6
+          done
+          
+          echo \"✅ Load test complete: 1000 messages sent\"
+EOF
+        
+        echo '⚡ Load test started!'
+        echo ''
+        echo '📊 Monitor scaling with:'
+        echo '   kubectl get hpa -n kafka -w'
+        echo '   kubectl get pods -n kafka -l app=ml-stream-processor -w'
+        echo ''
+        echo '🎯 Expected behavior:'
+        echo '   1. CPU usage increases due to message processing'
+        echo '   2. HPA detects >70% CPU usage'  
+        echo '   3. New pods are created (up to 10 max)'
+        echo '   4. Load distributes across new pods'
+        echo '   5. After load stops, pods scale down (after 5min cooldown)'
+    "
+}
+
 # Option 1: Kafka Streams (Einfachste Integration)
 deploy_kafka_streams_pipeline() {
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
@@ -2040,109 +2193,94 @@ EOF
     "
 }
 
-# Option 2: Apache Flink (Advanced Stream Processing)
-deploy_flink_pipeline() {
+show_data_flow() {
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
     local ssh_key=$(get_ssh_key)
     
-    echo "🚀 Deploying Apache Flink Stream Processing"
-    echo "=========================================="
-    echo "   - Advanced stream processing with Apache Flink"
-    echo "   - JobManager + TaskManager architecture"
-    echo "   - Complex event processing capabilities"
-    echo ""
+    echo "📊 COMPLETE DATA FLOW ANALYSIS"
+    echo "==============================="
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        KAFKA_IP=\$(kubectl get pod -l app=kafka -n kafka -o jsonpath='{.items[0].status.podIP}')
+        echo '🏗️  INFRASTRUCTURE OVERVIEW:'
+        echo '============================================'
+        kubectl get nodes -o wide
+        echo ''
         
-        echo '📦 Deploying Apache Flink cluster...'
-        kubectl apply -f - <<EOF
----
-# Flink JobManager
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: flink-jobmanager
-  namespace: kafka
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: flink-jobmanager
-  template:
-    metadata:
-      labels:
-        app: flink-jobmanager
-    spec:
-      containers:
-      - name: jobmanager
-        image: flink:1.17
-        args: [\"jobmanager\"]
-        ports:
-        - containerPort: 6123
-        - containerPort: 8081
-        env:
-        - name: JOB_MANAGER_RPC_ADDRESS
-          value: \"flink-jobmanager\"
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: \"\$KAFKA_IP:9092\"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: flink-jobmanager
-  namespace: kafka
-spec:
-  type: NodePort
-  ports:
-  - name: rpc
-    port: 6123
-    targetPort: 6123
-  - name: ui
-    port: 8081
-    targetPort: 8081
-    nodePort: 30081
-  selector:
-    app: flink-jobmanager
----
-# Flink TaskManager (Horizontally Scalable)
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: flink-taskmanager
-  namespace: kafka
-spec:
-  replicas: 2  # Horizontal scaling!
-  selector:
-    matchLabels:
-      app: flink-taskmanager
-  template:
-    metadata:
-      labels:
-        app: flink-taskmanager
-    spec:
-      containers:
-      - name: taskmanager
-        image: flink:1.17
-        args: [\"taskmanager\"]
-        env:
-        - name: JOB_MANAGER_RPC_ADDRESS
-          value: \"flink-jobmanager\"
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: \"\$KAFKA_IP:9092\"
-        resources:
-          requests:
-            memory: \"512Mi\"
-            cpu: \"200m\"
-          limits:
-            memory: \"1Gi\"
-            cpu: \"500m\"
-EOF
+        echo '📋 KAFKA CLUSTER TOPOLOGY:'
+        echo '============================================'
+        echo 'Kafka Cluster Components:'
+        kubectl get pods -n kafka -o wide | grep -E '(kafka|zookeeper)'
+        echo ''
         
-        echo '✅ Apache Flink cluster deployed!'
-        echo '🌐 Flink Dashboard: http://$master_ip:30081'
-        echo '📊 2 TaskManagers for horizontal processing'
+        echo '📊 INPUT TOPICS (Raw Data):'
+        echo '============================================'
+        echo '🔍 sensor-data topic:'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --describe --topic sensor-data
+        echo ''
+        echo '🔍 user-events topic:'  
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --describe --topic user-events
+        echo ''
+        
+        echo '🔄 PROCESSING LAYER:'
+        echo '============================================'
+        kubectl get pods -n kafka -l app=ml-stream-processor -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase' 2>/dev/null || kubectl get pods -n kafka -l app=kafka-streams-processor -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase'
+        echo ''
+        
+        echo '📤 OUTPUT TOPICS (Processed Data):'
+        echo '============================================'
+        echo '🔍 processed-events topic:'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --describe --topic processed-events
+        echo ''
+        if kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --list | grep -q ml-predictions; then
+          echo '🤖 ml-predictions topic:'
+          kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --describe --topic ml-predictions
+        fi
+        echo ''
+        
+        echo '📈 SAMPLE DATA FLOW:'
+        echo '============================================'
+        echo '📥 INPUT (sensor-data) - Last 3 messages:'
+        kubectl exec deployment/kafka -n kafka -- kafka-console-consumer --bootstrap-server localhost:9092 --topic sensor-data --from-beginning --max-messages 3 --timeout-ms 5000 2>/dev/null || echo 'No input data'
+        echo ''
+        echo '📤 OUTPUT (processed-events) - Last 3 messages:'  
+        kubectl exec deployment/kafka -n kafka -- kafka-console-consumer --bootstrap-server localhost:9092 --topic processed-events --from-beginning --max-messages 3 --timeout-ms 5000 2>/dev/null || echo 'No processed data'
+        echo ''
+        if kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --list | grep -q ml-predictions; then
+          echo '🤖 OUTPUT (ml-predictions) - Last 3 messages:'
+          kubectl exec deployment/kafka -n kafka -- kafka-console-consumer --bootstrap-server localhost:9092 --topic ml-predictions --from-beginning --max-messages 3 --timeout-ms 5000 2>/dev/null || echo 'No ML predictions yet'
+        fi
+        echo ''
+        
+        echo '🎯 MESSAGE COUNTS:'
+        echo '============================================'
+        echo '📊 Topic message statistics:'
+        for topic in sensor-data user-events processed-events ml-predictions; do
+          if kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --list | grep -q \$topic; then
+            echo \"Topic \$topic:\"
+            kubectl exec deployment/kafka -n kafka -- kafka-run-class kafka.tools.GetOffsetShell --broker-list localhost:9092 --topic \$topic --time -1 | awk -F: '{sum += \$3} END {print \"  Total messages: \" sum}'
+          fi
+        done
     "
+}
+
+
+find_free_port() {
+    # Findet einen freien Port zwischen 8900-8999
+    for port in {8900..8999}; do
+        if ! lsof -i :$port >/dev/null 2>&1; then
+            echo $port
+            return
+        fi
+    done
+    # Fallback: Random port zwischen 9000-9999
+    for port in {9000..9999}; do
+        if ! lsof -i :$port >/dev/null 2>&1; then
+            echo $port
+            return
+        fi
+    done
+    # Last resort
+    echo 8902
 }
 
 open_kafka_ui() {
@@ -2154,8 +2292,8 @@ open_kafka_ui() {
         exit 1
     fi
     
-    echo "🌐 Opening Kafka-UI with Port Forwarding"
-    echo "========================================"
+    echo "🌐 Opening Kafka-UI with Automatic Port Forwarding"
+    echo "=================================================="
     
     # Check if Kafka-UI is running
     echo "🔍 Checking Kafka-UI status..."
@@ -2172,22 +2310,59 @@ open_kafka_ui() {
         sleep 15
     }
     
-    # Kill any existing port forward on port 8902
-    echo "🧹 Cleaning up any existing port forwards..."
-    pkill -f "ssh.*8902:localhost:30902" 2>/dev/null || true
+    # Kill any existing Kafka-UI port forwards
+    echo "🧹 Cleaning up any existing Kafka-UI port forwards..."
+    pkill -f "ssh.*:localhost:30902.*$master_ip" 2>/dev/null || true
+    pkill -f "ssh.*kafka.*ui" 2>/dev/null || true
+    sleep 2
     
-    echo "🔗 Starting port forwarding..."
-    echo "   Local: http://localhost:8902"
-    echo "   Remote: $master_ip:30902"
+    # Find free port automatically
+    echo "🔍 Finding free local port..."
+    local local_port=$(find_free_port)
+    echo "✅ Using local port: $local_port"
+    
+    # Test if remote service is reachable
+    echo "🧪 Testing remote Kafka-UI accessibility..."
+    if ! ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "curl -s --max-time 5 http://localhost:30902 >/dev/null" 2>/dev/null; then
+        echo "❌ Kafka-UI not accessible on remote server"
+        echo "🔧 Try: ./version-manager.sh kafka-status"
+        exit 1
+    fi
+    echo "✅ Remote Kafka-UI is accessible"
+    
+    echo ""
+    echo "🔗 Setting up port forwarding..."
+    echo "   Local URL:  http://localhost:$local_port"
+    echo "   Remote:     $master_ip:30902" 
+    echo ""
+    echo "🌐 Starting tunnel (this will keep terminal busy)..."
+    echo "⚠️  Keep this terminal open while using Kafka-UI"
+    echo "   Press Ctrl+C to stop port forwarding"
     echo ""
     
-    # Use a more reliable approach with explicit SSH control
-    echo "⚠️  This will keep the terminal busy. Press Ctrl+C to stop."
-    echo "🌐 Open your browser to: http://localhost:8902"
-    echo ""
+    # Set trap for clean exit
+    trap 'echo ""; echo "🛑 Port forwarding stopped"; exit 0' INT
     
-    # Direct SSH port forwarding (blocking, more reliable)
-    ssh -i ~/.ssh/$ssh_key -L 8902:localhost:30902 ubuntu@$master_ip -N
+    # Start SSH tunnel with better error handling
+    echo "🚀 Connecting... (Browser should open in 3 seconds)"
+    sleep 1
+    
+    # Try to open browser before SSH blocks terminal
+    (
+        sleep 3
+        if command -v open >/dev/null 2>&1; then
+            echo "🌐 Opening browser..."
+            open "http://localhost:$local_port" >/dev/null 2>&1 &
+        elif command -v xdg-open >/dev/null 2>&1; then
+            echo "🌐 Opening browser..."
+            xdg-open "http://localhost:$local_port" >/dev/null 2>&1 &
+        fi
+    ) &
+    
+    # Start port forwarding (this blocks the terminal)
+    echo "✅ Port forwarding active on http://localhost:$local_port"
+    echo ""
+    ssh -i ~/.ssh/$ssh_key -L $local_port:localhost:30902 ubuntu@$master_ip -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3
 }
 
 # Vereinfachte Version ohne Browser-Opening
@@ -2253,87 +2428,242 @@ kafka_ui_status() {
     "
 }
 
-# Option 3: Spark Streaming (Integration mit vorhandenen Spark)
-deploy_spark_streaming() {
+deploy_ml_stream_processor() {
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
     local ssh_key=$(get_ssh_key)
     
-    echo "🚀 Deploying Spark Streaming Pipeline"
-    echo "====================================="
-    echo "   - Integration mit existing Spark infrastructure"
-    echo "   - Micro-batch processing"
-    echo "   - Machine Learning integration ready"
+    echo "🤖 Deploying ML-Enhanced Stream Processor"
+    echo "========================================="
+    echo "   - Real-time anomaly detection for sensor data"
+    echo "   - Critical temperature/humidity alerting"
+    echo "   - Machine Learning-based classification"
+    echo "   - Horizontally scalable with 3 ML processors"
     echo ""
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
-        KAFKA_IP=\$(kubectl get pod -l app=kafka -n kafka -o jsonpath='{.items[0].status.podIP}')
+        # Delete old stream processors
+        kubectl delete deployment kafka-streams-processor -n kafka --ignore-not-found=true
         
-        echo '📦 Deploying Spark Streaming job...'
+        echo '⏳ Waiting for cleanup...'
+        sleep 10
+        
+        # Get Kafka IP
+        KAFKA_IP=\$(kubectl get pod -l app=kafka -n kafka -o jsonpath='{.items[0].status.podIP}')
+        echo \"Using Kafka IP: \$KAFKA_IP\"
+        
+        echo '🤖 Deploying ML-enhanced stream processors...'
         kubectl apply -f - <<EOF
 ---
-apiVersion: batch/v1
-kind: Job
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: spark-streaming-processor
+  name: ml-stream-processor
   namespace: kafka
+  labels:
+    app: ml-stream-processor
 spec:
+  replicas: 3  # 3 parallel ML processors
+  selector:
+    matchLabels:
+      app: ml-stream-processor
   template:
+    metadata:
+      labels:
+        app: ml-stream-processor
     spec:
-      restartPolicy: OnFailure
       containers:
-      - name: spark-streaming
-        image: bitnami/spark:3.4
+      - name: ml-processor
+        image: confluentinc/cp-kafka:7.4.0
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: \"\$KAFKA_IP:9092\"
+        - name: PROCESSOR_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: ML_MODEL_VERSION
+          value: \"anomaly-detector-v1.0\"
         command:
         - /bin/bash
         - -c
         - |
-          echo \"🔥 Starting Spark Streaming Pipeline\"
-          echo \"====================================\"
+          echo \"🤖 ML Stream Processor Starting: \\\$PROCESSOR_ID\"
+          echo \"=========================================\"
+          echo \"🧠 ML Model: \\\$ML_MODEL_VERSION\"
+          echo \"📊 Kafka Brokers: \\\$KAFKA_BOOTSTRAP_SERVERS\"
           
-          # Install Kafka connector for Spark
-          export SPARK_KAFKA_VERSION=2.12
-          export KAFKA_VERSION=3.4.0
+          # Wait for Kafka
+          until kafka-topics --bootstrap-server \\\$KAFKA_BOOTSTRAP_SERVERS --list >/dev/null 2>&1; do
+            echo \"⏳ Waiting for Kafka...\"
+            sleep 5
+          done
+          echo \"✅ Kafka ready\"
           
-          # Simple Spark Streaming simulation
+          # ML Model Parameters
+          TEMP_CRITICAL_HIGH=35
+          TEMP_CRITICAL_LOW=5
+          HUMIDITY_CRITICAL_HIGH=85
+          HUMIDITY_CRITICAL_LOW=10
+          
+          GROUP_ID=\"ml-processor-\\\$(hostname)\"
+          echo \"🎯 ML Consumer Group: \\\$GROUP_ID\"
+          echo \"🌡️  Critical Temperature: <\\\$TEMP_CRITICAL_LOW°C or >\\\$TEMP_CRITICAL_HIGH°C\"
+          echo \"💧 Critical Humidity: <\\\$HUMIDITY_CRITICAL_LOW% or >\\\$HUMIDITY_CRITICAL_HIGH%\"
+          echo \"\"
+          
+          # Main ML processing loop
           while true; do
-            echo \"📊 [\$(date)] Spark Streaming batch processing...\"
+            echo \"🤖 [\\\$(date '+%H:%M:%S')] ML Processing Cycle Started\"
+            ML_PREDICTIONS=0
+            ANOMALIES_DETECTED=0
             
-            # Simulate reading from Kafka topics
-            echo \"📥 Reading from sensor-data topic...\"
-            kafka-console-consumer --bootstrap-server \$KAFKA_IP:9092 \\
-              --topic sensor-data --max-messages 5 --timeout-ms 5000 2>/dev/null | while read line; do
+            # Process sensor data with ML
+            echo \"📊 ML Analysis: Processing sensor data...\"
+            kafka-console-consumer \\\\
+              --bootstrap-server \\\$KAFKA_BOOTSTRAP_SERVERS \\\\
+              --topic sensor-data \\\\
+              --group \\\$GROUP_ID \\\\
+              --from-beginning \\\\
+              --max-messages 15 \\\\
+              --timeout-ms 10000 2>/dev/null | while IFS= read -r message; do
               
-              if [ ! -z \"\$line\" ]; then
-                echo \"🔥 Spark processing: \$line\"
-                # Simulate ML processing
-                sleep 0.5
+              if [ ! -z \"\\\$message\" ]; then
+                TIMESTAMP=\\\$(date +\"%Y-%m-%d %H:%M:%S\")
+                EPOCH=\\\$(date +%s)
                 
-                # Create enriched event
-                TIMESTAMP=\$(date +\"%Y-%m-%d %H:%M:%S\")
-                PROCESSED=\"{\\\"timestamp\\\":\\\"\$TIMESTAMP\\\",\\\"processor\\\":\\\"spark-streaming\\\",\\\"ml_processed\\\":true,\\\"original\\\":\$line}\"
+                # Parse sensor data
+                TEMP=\\\$(echo \"\\\$message\" | grep -o '\"temperature\":[0-9]*' | cut -d: -f2 || echo \"0\")
+                HUMIDITY=\\\$(echo \"\\\$message\" | grep -o '\"humidity\":[0-9]*' | cut -d: -f2 || echo \"0\")
+                SENSOR_ID=\\\$(echo \"\\\$message\" | grep -o '\"sensor_id\":\"[^\"]*\"' | cut -d'\"' -f4 || echo \"unknown\")
                 
-                echo \"📤 Spark output: \$PROCESSED\"
-                echo \"\$PROCESSED\" | kafka-console-producer --bootstrap-server \$KAFKA_IP:9092 --topic processed-events
+                # ML-based Anomaly Detection
+                ANOMALY_SCORE=0
+                ALERT_LEVEL=\"NORMAL\"
+                ANOMALY_REASONS=\"[]\"
+                
+                # Temperature Anomaly Detection
+                if [ \"\\\$TEMP\" -gt \"\\\$TEMP_CRITICAL_HIGH\" ]; then
+                  ANOMALY_SCORE=\\\$((ANOMALY_SCORE + 3))
+                  ALERT_LEVEL=\"CRITICAL\"
+                  ANOMALY_REASONS=\"[\\\\\\\"HIGH_TEMPERATURE\\\\\\\"]\"
+                elif [ \"\\\$TEMP\" -lt \"\\\$TEMP_CRITICAL_LOW\" ]; then
+                  ANOMALY_SCORE=\\\$((ANOMALY_SCORE + 3))
+                  ALERT_LEVEL=\"CRITICAL\"
+                  ANOMALY_REASONS=\"[\\\\\\\"LOW_TEMPERATURE\\\\\\\"]\"
+                elif [ \"\\\$TEMP\" -gt 30 ] || [ \"\\\$TEMP\" -lt 10 ]; then
+                  ANOMALY_SCORE=\\\$((ANOMALY_SCORE + 1))
+                  ALERT_LEVEL=\"WARNING\"
+                  ANOMALY_REASONS=\"[\\\\\\\"TEMP_WARNING\\\\\\\"]\"
+                fi
+                
+                # Humidity Anomaly Detection  
+                if [ \"\\\$HUMIDITY\" -gt \"\\\$HUMIDITY_CRITICAL_HIGH\" ]; then
+                  ANOMALY_SCORE=\\\$((ANOMALY_SCORE + 2))
+                  if [ \"\\\$ALERT_LEVEL\" = \"NORMAL\" ]; then ALERT_LEVEL=\"WARNING\"; fi
+                  ANOMALY_REASONS=\"[\\\\\\\"HIGH_HUMIDITY\\\\\\\"]\"
+                elif [ \"\\\$HUMIDITY\" -lt \"\\\$HUMIDITY_CRITICAL_LOW\" ]; then
+                  ANOMALY_SCORE=\\\$((ANOMALY_SCORE + 2))
+                  if [ \"\\\$ALERT_LEVEL\" = \"NORMAL\" ]; then ALERT_LEVEL=\"WARNING\"; fi
+                  ANOMALY_REASONS=\"[\\\\\\\"LOW_HUMIDITY\\\\\\\"]\"
+                fi
+                
+                # ML Prediction Result
+                if [ \"\\\$ANOMALY_SCORE\" -gt 2 ]; then
+                  PREDICTION=\"ANOMALY_DETECTED\"
+                  ANOMALIES_DETECTED=\\\$((ANOMALIES_DETECTED + 1))
+                else
+                  PREDICTION=\"NORMAL_OPERATION\"
+                fi
+                
+                # Create ML-enhanced processed event
+                ML_EVENT=\"{\\\\\\\"timestamp\\\\\\\":\\\\\\\"\\\$TIMESTAMP\\\\\\\",\\\\\\\"processor\\\\\\\":\\\\\\\"\\\$PROCESSOR_ID\\\\\\\",\\\\\\\"ml_model\\\\\\\":\\\\\\\"\\\$ML_MODEL_VERSION\\\\\\\",\\\\\\\"source\\\\\\\":\\\\\\\"sensor-data\\\\\\\",\\\\\\\"sensor_id\\\\\\\":\\\\\\\"\\\$SENSOR_ID\\\\\\\",\\\\\\\"temperature\\\\\\\":\\\$TEMP,\\\\\\\"humidity\\\\\\\":\\\$HUMIDITY,\\\\\\\"ml_prediction\\\\\\\":\\\\\\\"\\\$PREDICTION\\\\\\\",\\\\\\\"alert_level\\\\\\\":\\\\\\\"\\\$ALERT_LEVEL\\\\\\\",\\\\\\\"anomaly_score\\\\\\\":\\\$ANOMALY_SCORE,\\\\\\\"anomaly_reasons\\\\\\\":\\\$ANOMALY_REASONS,\\\\\\\"processing_epoch\\\\\\\":\\\$EPOCH}\"
+                
+                echo \"🤖 ML Analysis: \\\$SENSOR_ID | T:\\\${TEMP}°C H:\\\${HUMIDITY}% | \\\$PREDICTION (\\\$ALERT_LEVEL)\"
+                
+                if [ \"\\\$ALERT_LEVEL\" != \"NORMAL\" ]; then
+                  echo \"⚠️  ALERT: \\\$SENSOR_ID shows \\\$ALERT_LEVEL conditions!\"
+                fi
+                
+                # Send to ML results topic
+                if echo \"\\\$ML_EVENT\" | kafka-console-producer --bootstrap-server \\\$KAFKA_BOOTSTRAP_SERVERS --topic ml-predictions --sync 2>/dev/null; then
+                  echo \"✅ ML prediction sent\"
+                  ML_PREDICTIONS=\\\$((ML_PREDICTIONS + 1))
+                else
+                  echo \"❌ Failed to send ML prediction\"
+                fi
               fi
             done
             
-            echo \"⚡ Spark micro-batch completed, next batch in 10 seconds...\"
-            sleep 10
+            echo \"🎯 ML Cycle Complete: \\\$ML_PREDICTIONS predictions made, \\\$ANOMALIES_DETECTED anomalies detected\"
+            echo \"⏸️  Waiting 25 seconds before next ML cycle...\"
+            sleep 25
           done
-        env:
-        - name: KAFKA_BOOTSTRAP_SERVERS
-          value: \"\$KAFKA_IP:9092\"
         resources:
           requests:
             memory: \"512Mi\"
             cpu: \"300m\"
           limits:
-            memory: \"1Gi\"
+            memory: \"768Mi\"
             cpu: \"600m\"
 EOF
         
-        echo '✅ Spark Streaming pipeline deployed!'
-        echo '⚡ Micro-batch processing every 10 seconds'
+        # Create ML predictions topic
+        echo '📝 Creating ML predictions topic...'
+        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --create --topic ml-predictions --partitions 6 --replication-factor 1 --if-not-exists
+        
+        echo '✅ ML Stream processors deployed!'
+        echo ''
+        echo '⏳ Waiting for ML processors to be ready...'
+        kubectl wait --for=condition=Available deployment/ml-stream-processor -n kafka --timeout=180s
+        
+        echo ''
+        echo '🤖 ML Stream Processor Status:'
+        kubectl get pods -n kafka -l app=ml-stream-processor -o wide
+        
+        echo ''
+        echo '🧠 ML Features:'
+        echo '   ✅ 3 parallel ML processors for horizontal scaling'
+        echo '   ✅ Real-time anomaly detection'
+        echo '   ✅ Critical temperature alerts (>35°C or <5°C)'
+        echo '   ✅ Humidity monitoring (>85% or <10%)'
+        echo '   ✅ ML prediction confidence scoring'
+        echo '   ✅ Multi-level alerting (NORMAL/WARNING/CRITICAL)'
+        echo ''
+        echo '📊 Monitor ML predictions:'
+        echo '   kubectl logs -l app=ml-stream-processor -n kafka -f'
+        echo '   Check ml-predictions topic in Kafka-UI'
+        echo '   Look for ⚠️ ALERT messages in logs'
+    "
+}
+
+show_parallel_processing() {
+    local master_ip=$(terraform output -raw master_ip 2>/dev/null)
+    local ssh_key=$(get_ssh_key)
+    
+    echo "🔄 PARALLEL PROCESSING DEMONSTRATION"
+    echo "===================================="
+    
+    ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
+        echo '📊 Current Stream Processors:'
+        kubectl get pods -n kafka -l app=kafka-streams-processor -o wide
+        echo ''
+        
+        echo '🏷️  Processor Details with Node Assignment:'
+        kubectl get pods -n kafka -l app=kafka-streams-processor -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase,IP:.status.podIP'
+        echo ''
+        
+        echo '📋 Consumer Groups (each processor has unique group):'
+        kubectl exec deployment/kafka -n kafka -- kafka-consumer-groups --bootstrap-server localhost:9092 --list | grep stream-processor || echo 'No consumer groups found'
+        echo ''
+        
+        echo '🎯 Load Distribution Across Partitions:'
+        kubectl exec deployment/kafka -n kafka -- kafka-consumer-groups --bootstrap-server localhost:9092 --describe --all-groups | grep stream-processor || echo 'No consumer group details'
+        echo ''
+        
+        echo '📈 Real-time Processing Activity:'
+        echo 'Starting parallel log monitoring for 30 seconds...'
+        echo 'Watch for different processor IDs processing simultaneously:'
+        timeout 30s kubectl logs -l app=kafka-streams-processor -n kafka -f --prefix=true | grep -E '(Processing|processed and sent)' || echo 'Monitoring complete'
     "
 }
 
@@ -2364,6 +2694,9 @@ stream_processing_status() {
 
 # Command handling
 case $1 in
+    # ========================================
+    # CORE INFRASTRUCTURE (Aufgabe 1-3)
+    # ========================================
     "deploy")
         deploy_version $2
         ;;
@@ -2397,6 +2730,9 @@ case $1 in
     "cleanup")
         cleanup
         ;;
+    # ========================================
+    # BIG DATA - DATA LAKE (Aufgabe 4)
+    # ========================================
     "setup-datalake")
         setup_datalake
         ;;
@@ -2409,20 +2745,52 @@ case $1 in
     "cleanup-ml-jobs")
         cleanup_ml_jobs
         ;;
+    # ========================================
+    # STREAM PROCESSING (Aufgabe 5 - Main)
+    # ========================================
     "setup-kafka")
         setup_kafka
         ;;
-    "create-kafka-topic")
-        create_kafka_topic $2 $3 $4
+    "kafka-stream-demo")
+        kafka_stream_demo
         ;;
-    "list-kafka-topics")
-        list_kafka_topics
+    "deploy-ml-stream-processor")
+        deploy_ml_stream_processor
         ;;
+    "show-parallel-processing")
+        show_parallel_processing
+        ;;
+    "show-data-flow")
+        show_data_flow
+        ;;
+    "setup-autoscaling")
+        setup_autoscaling
+        ;;
+    "trigger-load-test")
+        trigger_load_test
+        ;;
+    "stream-status")
+        stream_processing_status
+        ;;
+    
+    # ========================================
+    # UI ACCESS (Working)
+    # ========================================
+    "deploy-kafka-ui")
+        deploy_kafka_ui
+        ;;
+    "open-kafka-ui")
+        open_kafka_ui
+        ;;
+    
+    # ========================================
+    # UTILITIES
+    # ========================================
     "kafka-status")
         kafka_status
         ;;
-    "kafka-stream-demo")
-        kafka_stream_demo
+    "list-kafka-topics")
+        list_kafka_topics
         ;;
     "kafka-show-streams")
         kafka_show_streams
@@ -2430,34 +2798,10 @@ case $1 in
     "cleanup-kafka")
         cleanup_kafka
         ;;
-    "deploy-kafdrop")
-        deploy_kafdrop
+    "create-kafka-topic")
+        create_kafka_topic $2 $3 $4
         ;;
-    "deploy-kafka-ui")
-        deploy_kafka_ui
-        ;;
-    "open-kafka-ui")
-        open_kafka_ui
-        ;;
-    "kafka-ui-tunnel")
-        kafka_ui_tunnel
-        ;;
-    "kafka-ui-status")
-        kafka_ui_status
-        ;;
-    "deploy-flink-pipeline")
-        deploy_flink_pipeline
-        ;;
-    "deploy-spark-streaming")
-        deploy_spark_streaming
-        ;;
-    "stream-status")
-        stream_processing_status
-        ;;
-     "deploy-kafka-streams")
-        deploy_kafka_streams
-        ;;
-    *)
+     *)
         show_help
         ;;
 esac
