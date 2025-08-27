@@ -8,25 +8,7 @@ Implementation einer **horizontally skalierbaren Stream-Processing-Pipeline** au
 
 ## Systemarchitektur
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Kubernetes Multi-Node Cluster            │
-├─────────────────┬─────────────────┬─────────────────────────┤
-│   Master Node   │   Worker-1      │      Worker-2           │
-├─────────────────┼─────────────────┼─────────────────────────┤
-│ • Zookeeper     │ • Kafka Broker  │ • ML Stream Processor   │
-│ • Kafka Manager │ • ML Processor  │ • ML Stream Processor   │
-│ • ML Processor  │ • Kafka-UI      │ • Load Test Jobs        │
-└─────────────────┴─────────────────┴─────────────────────────┘
-```
-
-**Data Flow:**
-
-```
-Producer → Kafka Topics → Stream Processors → Output Topics
-   ↓            ↓              ↓                    ↓
-Raw Data → Partitioned → ML Analysis → Processed Results
-```
+![Kafka Infrastructure](./diagrams/kafka_architecture.svg)
 
 ---
 
