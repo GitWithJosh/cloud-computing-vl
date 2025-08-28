@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-stream-processor
+  namespace: kafka
+  labels:
+    app: ml-stream-processor
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ml-stream-processor
+  template:
+    metadata:
+      labels:
+        app: ml-stream-processor
+    spec:
+      containers:
+      - name: ml-processor
+        image: confluentinc/cp-kafka:7.4.0
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "KAFKA_IP_PLACEHOLDER:9092"
+        - name: PROCESSOR_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: ML_MODEL_VERSION
+          value: "anomaly-detector-v1.0"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "ML Stream Processor Starting: $PROCESSOR_ID"
+          echo "ML Model: $ML_MODEL_VERSION"
+          echo "Kafka Brokers: $KAFKA_BOOTSTRAP_SERVERS"
+          
+          until kafka-topics --bootstrap-server $KAFKA_BOOTSTRAP_SERVERS --list >/dev/null 2>&1; do
+            echo "Waiting for Kafka..."
+            sleep 5
+          done
+          echo "Kafka ready"
+          
+          TEMP_CRITICAL_HIGH=35
+          TEMP_CRITICAL_LOW=5
+          HUMIDITY_CRITICAL_HIGH=85
+          HUMIDITY_CRITICAL_LOW=10
+          
+          GROUP_ID="ml-processor-$(hostname)"
+          echo "ML Consumer Group: $GROUP_ID"
+          
+          while true; do
+            echo "[$(date '+%H:%M:%S')] ML Processing Cycle Started"
+            ML_PREDICTIONS=0
+            ANOMALIES_DETECTED=0
+            
+            kafka-console-consumer \
+              --bootstrap-server $KAFKA_BOOTSTRAP_SERVERS \
+              --topic sensor-data \
+              --group $GROUP_ID \
+              --from-beginning \
+              --max-messages 15 \
+              --timeout-ms 10000 2>/dev/null | while IFS= read -r message; do
+              
+              if [ ! -z "$message" ]; then
+                TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+                EPOCH=$(date +%s)
+                
+                TEMP=$(echo "$message" | grep -o '"temperature":[0-9]*' | cut -d: -f2 || echo "0")
+                HUMIDITY=$(echo "$message" | grep -o '"humidity":[0-9]*' | cut -d: -f2 || echo "0")
+                SENSOR_ID=$(echo "$message" | grep -o '"sensor_id":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+                
+                ANOMALY_SCORE=0
+                ALERT_LEVEL="NORMAL"
+                ANOMALY_REASONS="[]"
+                
+                if [ "$TEMP" -gt "$TEMP_CRITICAL_HIGH" ]; then
+                  ANOMALY_SCORE=$((ANOMALY_SCORE + 3))
+                  ALERT_LEVEL="CRITICAL"
+                  ANOMALY_REASONS="[\"HIGH_TEMPERATURE\"]"
+                elif [ "$TEMP" -lt "$TEMP_CRITICAL_LOW" ]; then
+                  ANOMALY_SCORE=$((ANOMALY_SCORE + 3))
+                  ALERT_LEVEL="CRITICAL"
+                  ANOMALY_REASONS="[\"LOW_TEMPERATURE\"]"
+                elif [ "$TEMP" -gt 30 ] || [ "$TEMP" -lt 10 ]; then
+                  ANOMALY_SCORE=$((ANOMALY_SCORE + 1))
+                  ALERT_LEVEL="WARNING"
+                  ANOMALY_REASONS="[\"TEMP_WARNING\"]"
+                fi
+                
+                if [ "$HUMIDITY" -gt "$HUMIDITY_CRITICAL_HIGH" ]; then
+                  ANOMALY_SCORE=$((ANOMALY_SCORE + 2))
+                  if [ "$ALERT_LEVEL" = "NORMAL" ]; then ALERT_LEVEL="WARNING"; fi
+                  ANOMALY_REASONS="[\"HIGH_HUMIDITY\"]"
+                elif [ "$HUMIDITY" -lt "$HUMIDITY_CRITICAL_LOW" ]; then
+                  ANOMALY_SCORE=$((ANOMALY_SCORE + 2))
+                  if [ "$ALERT_LEVEL" = "NORMAL" ]; then ALERT_LEVEL="WARNING"; fi
+                  ANOMALY_REASONS="[\"LOW_HUMIDITY\"]"
+                fi
+                
+                if [ "$ANOMALY_SCORE" -gt 2 ]; then
+                  PREDICTION="ANOMALY_DETECTED"
+                  ANOMALIES_DETECTED=$((ANOMALIES_DETECTED + 1))
+                else
+                  PREDICTION="NORMAL_OPERATION"
+                fi
+                
+                ML_EVENT="{\"timestamp\":\"$TIMESTAMP\",\"processor\":\"$PROCESSOR_ID\",\"ml_model\":\"$ML_MODEL_VERSION\",\"source\":\"sensor-data\",\"sensor_id\":\"$SENSOR_ID\",\"temperature\":$TEMP,\"humidity\":$HUMIDITY,\"ml_prediction\":\"$PREDICTION\",\"alert_level\":\"$ALERT_LEVEL\",\"anomaly_score\":$ANOMALY_SCORE,\"anomaly_reasons\":$ANOMALY_REASONS,\"processing_epoch\":$EPOCH}"
+                
+                echo "ML Analysis: $SENSOR_ID | T:${TEMP}°C H:${HUMIDITY}% | $PREDICTION ($ALERT_LEVEL)"
+                
+                if [ "$ALERT_LEVEL" != "NORMAL" ]; then
+                  echo "ALERT: $SENSOR_ID shows $ALERT_LEVEL conditions!"
+                fi
+                
+                if echo "$ML_EVENT" | kafka-console-producer --bootstrap-server $KAFKA_BOOTSTRAP_SERVERS --topic ml-predictions --sync 2>/dev/null; then
+                  echo "ML prediction sent"
+                  ML_PREDICTIONS=$((ML_PREDICTIONS + 1))
+                else
+                  echo "Failed to send ML prediction"
+                fi
+              fi
+            done
+            
+            echo "ML Cycle Complete: $ML_PREDICTIONS predictions made, $ANOMALIES_DETECTED anomalies detected"
+            echo "Waiting 25 seconds before next ML cycle..."
+            sleep 25
+          done
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "768Mi"
+            cpu: "600m"
