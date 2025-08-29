@@ -29,9 +29,9 @@ public class SensorAnomalyProcessor {
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         
         // Enable processing guarantees
-        props.put(StreamsConfig.PROCESSING_GUARANTEE_CONFIG, StreamsConfig.EXACTLY_ONCE_V2);
+        props.put(StreamsConfig.PROCESSING_GUARANTEE_CONFIG, StreamsConfig.AT_LEAST_ONCE);
         props.put(StreamsConfig.REPLICATION_FACTOR_CONFIG, 1); // Single broker setup
-        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, 2); // Parallel processing
+        props.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, 1); // Parallel processing
         
         // Build the topology
         StreamsBuilder builder = new StreamsBuilder();
@@ -87,9 +87,6 @@ public class SensorAnomalyProcessor {
         }
     }
     
-    /**
-     * Process sensor data and detect anomalies using threshold-based algorithm
-     */
     private static String processSensorData(String jsonValue) {
         try {
             JsonNode sensor = objectMapper.readTree(jsonValue);
@@ -134,8 +131,13 @@ public class SensorAnomalyProcessor {
             
             anomalyReasons.append("]");
             
-            // Only return result if anomaly detected
+            // Log all readings with clear distinction
             if (anomalyScore > 0) {
+                // Log anomaly
+                System.out.println("ANOMALY DETECTED: " + sensorId + " - " + alertLevel + 
+                                " (T:" + temperature + "°C, H:" + humidity + "%, Score:" + anomalyScore + ")");
+                
+                // Create result for anomalous readings
                 ObjectNode result = objectMapper.createObjectNode();
                 result.put("timestamp", Instant.now().toString());
                 result.put("original_timestamp", originalTimestamp);
@@ -151,20 +153,19 @@ public class SensorAnomalyProcessor {
                 result.put("anomaly_reasons", anomalyReasons.toString());
                 result.put("processing_epoch", Instant.now().getEpochSecond());
                 
-                System.out.println("ANOMALY DETECTED: " + sensorId + " - " + alertLevel + 
-                                 " (T:" + temperature + "°C, H:" + humidity + "%, Score:" + anomalyScore + ")");
-                
                 return objectMapper.writeValueAsString(result);
+            } else {
+                // Log normal reading
+                System.out.println("NORMAL: " + sensorId + " - NORMAL (T:" + temperature + "°C, H:" + humidity + "%, Score:" + anomalyScore + ")");
+                return null; // Normal readings are filtered out from output topic
             }
-            
-            return null; // Normal reading, filtered out
             
         } catch (Exception e) {
             System.err.println("Error processing sensor data: " + e.getMessage());
             return null;
         }
     }
-    
+
     /**
      * Process user events for behavioral anomalies (simplified)
      */
@@ -178,6 +179,9 @@ public class SensorAnomalyProcessor {
             
             // Simple behavioral anomaly: high page access rate
             if (pageId > 45) { // Arbitrary threshold for demo
+                // Log user anomaly
+                System.out.println("USER ANOMALY: User " + userId + " accessing high page ID " + pageId + " - SUSPICIOUS_BEHAVIOR");
+                
                 ObjectNode result = objectMapper.createObjectNode();
                 result.put("timestamp", Instant.now().toString());
                 result.put("processor", "kafka-streams");
@@ -192,12 +196,12 @@ public class SensorAnomalyProcessor {
                 result.put("anomaly_reasons", "[\"HIGH_PAGE_ACCESS\"]");
                 result.put("processing_epoch", Instant.now().getEpochSecond());
                 
-                System.out.println("USER ANOMALY: User " + userId + " accessing high page ID " + pageId);
-                
                 return objectMapper.writeValueAsString(result);
+            } else {
+                // Log normal user behavior
+                System.out.println("USER NORMAL: User " + userId + " performed " + action + " on page " + pageId + " - NORMAL_BEHAVIOR");
+                return null; // Normal user behavior filtered out
             }
-            
-            return null; // Normal user behavior
             
         } catch (Exception e) {
             System.err.println("Error processing user event: " + e.getMessage());

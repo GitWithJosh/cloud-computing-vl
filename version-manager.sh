@@ -2292,31 +2292,51 @@ deploy_ml_stream_processor() {
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
         echo 'Loading Kafka Streams image on cluster...'
         docker load < /tmp/sensor-anomaly-processor.tar
-        sudo ctr -n k8s.io images import /tmp/sensor-anomaly-processor.tar
+        sudo k3s ctr images import /tmp/sensor-anomaly-processor.tar
+        
+        echo 'Distributing image to all nodes...'
+        NODE_IPS=\$(kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}')
+        DISTRIBUTION_SUCCESS=true
+        
+        for NODE_IP in \$NODE_IPS; do
+            if [ \"\$NODE_IP\" != \"$master_ip\" ]; then
+                echo \"Loading image on node \$NODE_IP...\"
+                scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 /tmp/sensor-anomaly-processor.tar ubuntu@\$NODE_IP:/tmp/ && \
+                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ubuntu@\$NODE_IP 'sudo k3s ctr images import /tmp/sensor-anomaly-processor.tar && rm /tmp/sensor-anomaly-processor.tar' || {
+                    echo \"Warning: Failed to distribute to \$NODE_IP\"
+                    DISTRIBUTION_SUCCESS=false
+                }
+            fi
+        done
         
         echo 'Cleaning up old processors...'
-        kubectl delete deployment ml-stream-processor python-ml-stream-processor kafka-streams-processor kafka-streams-anomaly-processor -n kafka --ignore-not-found=true
-        kubectl delete hpa ml-stream-processor-hpa kafka-streams-processor-hpa -n kafka --ignore-not-found=true
+        kubectl delete deployment kafka-streams-anomaly-processor -n kafka --ignore-not-found=true
+        kubectl delete hpa kafka-streams-processor-hpa -n kafka --ignore-not-found=true
         
-        echo 'Waiting for cleanup...'
         sleep 10
         
-        echo 'Creating ml-predictions topic...'
-        kubectl exec deployment/kafka -n kafka -- kafka-topics --bootstrap-server localhost:9092 --create --topic ml-predictions --partitions 6 --replication-factor 1 --if-not-exists
+        if [ \"\$DISTRIBUTION_SUCCESS\" = \"false\" ]; then
+            echo 'Using master-only deployment due to distribution failure...'
+            MASTER_HOSTNAME=\$(kubectl get nodes --no-headers | grep master | awk '{print \$1}')
+            
+            # Insert nodeSelector after the 'spec:' line in the pod template
+            awk -v hostname=\"\$MASTER_HOSTNAME\" '
+            /^    spec:$/ && !found {
+                print \$0
+                print \"      nodeSelector:\"
+                print \"        kubernetes.io/hostname: \" hostname
+                found=1
+                next
+            }
+            {print}
+            ' /tmp/kafka-streams-deployment.yaml > /tmp/kafka-streams-master-only.yaml
+            
+            kubectl apply -f /tmp/kafka-streams-master-only.yaml
+            rm -f /tmp/kafka-streams-master-only.yaml
+        else
+            kubectl apply -f /tmp/kafka-streams-deployment.yaml
+        fi
         
-        echo 'Deploying Kafka Streams application...'
-        kubectl apply -f /tmp/kafka-streams-deployment.yaml
-        
-        echo 'Waiting for deployment...'
-        kubectl wait --for=condition=Available deployment/kafka-streams-anomaly-processor -n kafka --timeout=180s || echo 'Still deploying...'
-        
-        echo 'Kafka Streams Status:'
-        kubectl get pods -n kafka -l app=kafka-streams-processor -o wide
-        
-        echo 'HPA Status:'
-        kubectl get hpa kafka-streams-processor-hpa -n kafka || echo 'HPA will be available shortly'
-        
-        echo 'Cleaning up temp files...'
         rm -f /tmp/sensor-anomaly-processor.tar /tmp/kafka-streams-deployment.yaml
     "
 

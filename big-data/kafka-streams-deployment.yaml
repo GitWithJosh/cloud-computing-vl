@@ -17,8 +17,6 @@ spec:
         app: kafka-streams-processor
         version: v1.0.0
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: k8s-1ad81a88-master
       containers:
       - name: kafka-streams-processor
         image: sensor-anomaly-processor:1.0.0
