@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-test-producer
+  namespace: kafka
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: load-producer
+        image: confluentinc/cp-kafka:7.4.0
+        command:
+        - /bin/bash
+        - -c
+        - |
+          echo "Starting high-load data generation..."
+          echo "Target: 1000 messages in 10 minutes"
+          
+          for i in {1..1000}; do
+            TEMP=$((RANDOM % 60 - 10))
+            HUMIDITY=$((RANDOM % 100))
+            SENSOR_ID="sensor_$((RANDOM % 20))"
+            
+            echo "{\"timestamp\":\"$(date)\",\"sensor_id\":\"$SENSOR_ID\",\"temperature\":$TEMP,\"humidity\":$HUMIDITY}" | kafka-console-producer --bootstrap-server kafka-headless:9092 --topic sensor-data
+            
+            USER_ID=$((RANDOM % 1000))
+            ACTION="click"
+            PAGE_ID=$((RANDOM % 50))
+            
+            echo "{\"timestamp\":\"$(date)\",\"user_id\":$USER_ID,\"action\":\"$ACTION\",\"page_id\":$PAGE_ID}" | kafka-console-producer --bootstrap-server kafka-headless:9092 --topic user-events
+            
+            if [ $((i % 50)) -eq 0 ]; then
+              echo "Generated $i messages..."
+            fi
+            sleep 0.6
+          done
+          
+          echo "Load test complete: 1000 messages sent"
