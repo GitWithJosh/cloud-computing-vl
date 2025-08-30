@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-streams-anomaly-processor
+  namespace: kafka
+  labels:
+    app: kafka-streams-processor
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-streams-processor
+  template:
+    metadata:
+      labels:
+        app: kafka-streams-processor
+        version: v1.0.0
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: k8s-1ad81a88-master
+      containers:
+      - name: kafka-streams-processor
+        image: sensor-anomaly-processor:1.0.0
+        imagePullPolicy: Never
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka-headless:9092"
+        - name: KAFKA_APPLICATION_ID
+          value: "sensor-anomaly-detector"
+        - name: JAVA_OPTS
+          value: "-Xmx512m -Xms256m -XX:+UseContainerSupport"
+        - name: KAFKA_STREAMS_OPTS
+          value: "-Dkafka.streams.auto.offset.reset=earliest -Dkafka.streams.processing.guarantee=exactly_once_v2"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "300m"
+          limits:
+            memory: "768Mi"
+            cpu: "600m"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: app-state
+          mountPath: /app/state
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      - name: app-state
+        emptyDir: {}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-streams-processor-service
+  namespace: kafka
+  labels:
+    app: kafka-streams-processor
+spec:
+  selector:
+    app: kafka-streams-processor
+  ports:
+  - name: metrics
+    port: 9999
+    targetPort: 9999
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kafka-streams-processor-hpa
+  namespace: kafka
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kafka-streams-anomaly-processor
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

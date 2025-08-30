@@ -1,0 +1,362 @@
+# 🗂️ Data Ingestion Job for MinIO Data Lake
+# ==========================================
+# Kubernetes Job für Daten-Upload in MinIO Data Lake
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-ingestion-job
+  namespace: big-data
+  labels:
+    app: big-data-ingestion
+    type: data-ingestion
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 1800  # 30 Minuten Timeout
+  template:
+    metadata:
+      labels:
+        app: big-data-ingestion
+        type: data-ingestion
+    spec:
+      restartPolicy: Never
+      initContainers:
+      - name: wait-for-minio
+        image: busybox:1.28
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for MinIO Data Lake to be ready..."
+          until nc -z minio.big-data.svc.cluster.local 9000; do 
+            echo "MinIO not ready, waiting 5 seconds..."
+            sleep 5
+          done
+          echo "✅ MinIO Data Lake is ready!"
+      containers:
+      - name: data-ingestion
+        image: python:3.11-slim
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "🚀 Starting Data Ingestion Job"
+          echo "================================"
+          
+          # Install required packages
+          echo "📦 Installing required Python packages..."
+          pip install --no-cache-dir pandas numpy minio
+          
+          # Create the data ingestion script
+          cat > /app/data_ingestion.py << 'PYINGESTION'
+          #!/usr/bin/env python3
+          """
+          🗂️ Data Ingestion Pipeline for MinIO Data Lake
+          ============================================== 
+          """
+          
+          import pandas as pd
+          import numpy as np
+          import json
+          import logging
+          import os
+          import io
+          from datetime import datetime
+          from minio import Minio
+          from minio.error import S3Error
+          
+          # Logging Setup
+          logging.basicConfig(
+              level=logging.INFO,
+              format='%(asctime)s | %(levelname)s | %(message)s',
+              datefmt='%H:%M:%S'
+          )
+          logger = logging.getLogger(__name__)
+          
+          class MinIODataLake:
+              """MinIO Data Lake Client für Data Ingestion"""
+              
+              def __init__(self):
+                  """Initialisiere MinIO Client"""
+                  self.client = Minio(
+                      'minio.big-data.svc.cluster.local:9000',
+                      access_key='minioadmin',
+                      secret_key='minioadmin123',
+                      secure=False
+                  )
+                  self.raw_bucket = 'raw-data'
+                  self.processed_bucket = 'processed-data'
+                  self.models_bucket = 'ml-models'
+                  
+                  logger.info("🗂️ MinIO Data Lake Client initialized")
+                  
+              def test_connection(self):
+                  """Test MinIO connection and list buckets"""
+                  try:
+                      logger.info("🔧 Testing MinIO connection...")
+                      buckets = list(self.client.list_buckets())
+                      logger.info(f"✅ Connection successful! Found {len(buckets)} buckets:")
+                      for bucket in buckets:
+                          logger.info(f"   - {bucket.name} (created: {bucket.creation_date})")
+                      return True
+                  except Exception as e:
+                      logger.error(f"❌ MinIO connection test failed: {e}")
+                      logger.error(f"   Error type: {type(e).__name__}")
+                      return False
+                  
+              def ensure_buckets_exist(self):
+                  """Stelle sicher, dass alle benötigten Buckets existieren"""
+                  buckets = [self.raw_bucket, self.processed_bucket, self.models_bucket]
+                  
+                  for bucket in buckets:
+                      try:
+                          if not self.client.bucket_exists(bucket):
+                              self.client.make_bucket(bucket)
+                              logger.info(f"✅ Created bucket: {bucket}")
+                          else:
+                              logger.info(f"📁 Bucket exists: {bucket}")
+                      except Exception as e:
+                          logger.error(f"❌ Bucket creation failed for {bucket}: {e}")
+                          logger.error(f"   Error type: {type(e).__name__}")
+                          logger.error(f"   Error details: {str(e)}")
+                          raise  # Re-raise to stop execution if bucket creation fails
+                          
+              def upload_dataframe(self, df, bucket, filename, format='csv'):
+                  """Upload DataFrame als CSV zu MinIO"""
+                  try:
+                      logger.info(f"📤 Starting upload of {filename} to {bucket}...")
+                      logger.info(f"   DataFrame shape: {df.shape}")
+                      
+                      buffer = io.BytesIO()
+                      if format == 'csv':
+                          df.to_csv(buffer, index=False)
+                      elif format == 'parquet':
+                          df.to_parquet(buffer, index=False)
+                      
+                      buffer.seek(0)
+                      buffer_size = len(buffer.getvalue())
+                      logger.info(f"   Buffer size: {buffer_size:,} bytes")
+                      
+                      self.client.put_object(
+                          bucket,
+                          filename,
+                          buffer,
+                          length=buffer_size,
+                          content_type='application/octet-stream'
+                      )
+                      
+                      logger.info(f"✅ Uploaded: {filename} to {bucket} ({len(df):,} rows)")
+                      
+                      # Verify upload by listing bucket contents
+                      try:
+                          objects = list(self.client.list_objects(bucket, prefix=filename))
+                          if objects:
+                              logger.info(f"✅ Upload verified: {filename} exists in {bucket}")
+                          else:
+                              logger.warning(f"⚠️ Upload verification failed: {filename} not found in {bucket}")
+                      except Exception as verify_e:
+                          logger.warning(f"⚠️ Upload verification failed: {verify_e}")
+                      
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"❌ Upload failed: {e}")
+                      logger.error(f"   Error type: {type(e).__name__}")
+                      logger.error(f"   Error details: {str(e)}")
+                      return False
+                      
+              def check_data_exists(self, bucket, filename):
+                  """Prüfe ob Datei bereits existiert"""
+                  try:
+                      self.client.stat_object(bucket, filename)
+                      return True
+                  except Exception:
+                      return False
+          
+          class FoodDataGenerator:
+              """Generator für große Food Datasets"""
+              
+              def __init__(self):
+                  self.timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                  
+              def generate_large_food_dataset(self, size=50000):
+                  """Generiere großen realistischen Food Dataset für Big Data Processing"""
+                  
+                  logger.info(f"🏭 Generating large food dataset with {size:,} samples...")
+                  
+                  # Basis Food-Kategorien mit realistischen Daten
+                  food_categories = {
+                      'protein': [
+                          {'name': 'Chicken Breast', 'base_cal': 165, 'protein': 31, 'carbs': 0, 'fat': 3.6},
+                          {'name': 'Salmon', 'base_cal': 208, 'protein': 20, 'carbs': 0, 'fat': 12},
+                          {'name': 'Beef', 'base_cal': 250, 'protein': 26, 'carbs': 0, 'fat': 15},
+                          {'name': 'Eggs', 'base_cal': 155, 'protein': 13, 'carbs': 1.1, 'fat': 11},
+                          {'name': 'Tofu', 'base_cal': 76, 'protein': 8, 'carbs': 1.9, 'fat': 4.8},
+                      ],
+                      'carbs': [
+                          {'name': 'White Rice', 'base_cal': 130, 'protein': 2.7, 'carbs': 28, 'fat': 0.3},
+                          {'name': 'Pasta', 'base_cal': 131, 'protein': 5, 'carbs': 25, 'fat': 1.1},
+                          {'name': 'Bread', 'base_cal': 265, 'protein': 9, 'carbs': 49, 'fat': 3.2},
+                          {'name': 'Potato', 'base_cal': 77, 'protein': 2, 'carbs': 17, 'fat': 0.1},
+                          {'name': 'Quinoa', 'base_cal': 120, 'protein': 4.4, 'carbs': 22, 'fat': 1.9},
+                      ],
+                      'vegetables': [
+                          {'name': 'Broccoli', 'base_cal': 25, 'protein': 3, 'carbs': 5, 'fat': 0.3},
+                          {'name': 'Spinach', 'base_cal': 23, 'protein': 2.9, 'carbs': 3.6, 'fat': 0.4},
+                          {'name': 'Carrots', 'base_cal': 41, 'protein': 0.9, 'carbs': 10, 'fat': 0.2},
+                          {'name': 'Bell Pepper', 'base_cal': 20, 'protein': 1, 'carbs': 4.6, 'fat': 0.3},
+                      ],
+                      'fruits': [
+                          {'name': 'Apple', 'base_cal': 52, 'protein': 0.3, 'carbs': 14, 'fat': 0.2},
+                          {'name': 'Banana', 'base_cal': 89, 'protein': 1.1, 'carbs': 23, 'fat': 0.3},
+                          {'name': 'Orange', 'base_cal': 47, 'protein': 0.9, 'carbs': 12, 'fat': 0.1},
+                          {'name': 'Berries', 'base_cal': 57, 'protein': 0.7, 'carbs': 14, 'fat': 0.3},
+                      ]
+                  }
+                  
+                  meal_times = ['breakfast', 'lunch', 'dinner', 'snack']
+                  preparation_methods = ['raw', 'boiled', 'grilled', 'fried', 'steamed', 'baked']
+                  
+                  # Generiere große Datenmengen
+                  np.random.seed(42)  # Reproduzierbare Ergebnisse
+                  
+                  data = []
+                  for i in range(size):
+                      # Zufällige Kategorie und Food wählen
+                      category = np.random.choice(list(food_categories.keys()))
+                      food_info = np.random.choice(food_categories[category])
+                      
+                      # Gewicht mit realistischer Variation
+                      base_weight = np.random.normal(150, 50)  # 150g ± 50g
+                      weight = max(10, min(1000, base_weight))  # Zwischen 10g und 1kg
+                      
+                      # Kalorien basierend auf Gewicht berechnen (mit Noise)
+                      calorie_multiplier = weight / 100
+                      noise_factor = np.random.normal(1.0, 0.1)  # ±10% Varianz
+                      calories = food_info['base_cal'] * calorie_multiplier * noise_factor
+                      
+                      # Makronährstoffe berechnen
+                      protein = food_info['protein'] * calorie_multiplier * np.random.normal(1.0, 0.15)
+                      carbs = food_info['carbs'] * calorie_multiplier * np.random.normal(1.0, 0.15)
+                      fat = food_info['fat'] * calorie_multiplier * np.random.normal(1.0, 0.15)
+                      
+                      data.append({
+                          'food_item': food_info['name'],
+                          'category': category,
+                          'weight_grams': round(weight, 1),
+                          'calories': round(max(1, calories), 1),
+                          'protein_g': round(max(0, protein), 2),
+                          'carbs_g': round(max(0, carbs), 2),
+                          'fat_g': round(max(0, fat), 2),
+                          'meal_time': np.random.choice(meal_times),
+                          'preparation_method': np.random.choice(preparation_methods),
+                          'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                      })
+                      
+                  df = pd.DataFrame(data)
+                  logger.info(f"✅ Generated {len(df):,} food samples across {df['category'].nunique()} categories")
+                  logger.info(f"📊 Dataset size: {df.memory_usage(deep=True).sum() / 1024 / 1024:.1f} MB")
+                  
+                  return df
+          
+          def main():
+              """Hauptfunktion für Data Ingestion"""
+              
+              logger.info("🚀 Starting Data Ingestion Pipeline")
+              logger.info("=" * 50)
+              
+              try:
+                  # 1. Initialize Data Lake Connection
+                  data_lake = MinIODataLake()
+                  
+                  # Test connection first
+                  if not data_lake.test_connection():
+                      logger.error("❌ MinIO connection failed, cannot proceed")
+                      return
+                  
+                  data_lake.ensure_buckets_exist()
+                  
+                  # 2. Generate Food Dataset
+                  generator = FoodDataGenerator()
+                  
+                  # Check if large dataset already exists
+                  dataset_filename = f"large_food_dataset_{generator.timestamp}.csv"
+                  if data_lake.check_data_exists(data_lake.raw_bucket, "large_food_dataset_latest.csv"):
+                      logger.info("📋 Large dataset already exists, skipping generation")
+                  else:
+                      # Generate new large dataset
+                      df = generator.generate_large_food_dataset(size=50000)
+                      
+                      # Upload to raw data bucket
+                      success = data_lake.upload_dataframe(df, data_lake.raw_bucket, dataset_filename)
+                      if success:
+                          # Also create a "latest" symlink
+                          data_lake.upload_dataframe(df, data_lake.raw_bucket, "large_food_dataset_latest.csv")
+                          logger.info("✅ Large dataset uploaded successfully")
+                      else:
+                          logger.error("❌ Failed to upload large dataset")
+                          return
+                  
+                  # 3. Create metadata about the ingested data
+                  metadata = {
+                      "ingestion_timestamp": datetime.now().isoformat(),
+                      "total_records": 50000,
+                      "data_format": "csv",
+                      "source": "generated_food_data",
+                      "schema": {
+                          "food_item": "string",
+                          "category": "string", 
+                          "weight_grams": "float",
+                          "calories": "float",
+                          "protein_g": "float",
+                          "carbs_g": "float",
+                          "fat_g": "float",
+                          "meal_time": "string",
+                          "preparation_method": "string",
+                          "timestamp": "datetime"
+                      }
+                  }
+                  
+                  # Save metadata
+                  metadata_buffer = io.BytesIO()
+                  metadata_buffer.write(json.dumps(metadata, indent=2).encode())
+                  metadata_buffer.seek(0)
+                  
+                  data_lake.client.put_object(
+                      data_lake.raw_bucket,
+                      "data_metadata.json",
+                      metadata_buffer,
+                      length=len(metadata_buffer.getvalue()),
+                      content_type='application/json'
+                  )
+                  
+                  logger.info("✅ Data ingestion completed successfully!")
+                  logger.info("📊 Ready for ML processing")
+                      
+              except Exception as e:
+                  logger.error(f"❌ Data ingestion failed: {e}")
+                  raise
+          
+          if __name__ == "__main__":
+              main()
+          PYINGESTION
+          
+          # Run the ingestion pipeline
+          echo "🚀 Starting Data Ingestion Pipeline execution..."
+          python /app/data_ingestion.py
+          
+          echo "✅ Data Ingestion Pipeline completed!"
+        env:
+        - name: INGESTION_JOB_TIMESTAMP
+          value: "$(date +%Y%m%d-%H%M%S)"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: ingestion-workspace
+          mountPath: /app
+      volumes:
+      - name: ingestion-workspace
+        emptyDir: {}

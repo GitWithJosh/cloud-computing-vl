@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+# OpenStack Configuration Template
+# Copy this file to openrc.sh and fill in your credentials
+# Get these values from your OpenStack dashboard under "API Access"
+
+# Replace with your OpenStack credentials
+export OS_AUTH_URL=https://your-openstack-endpoint:5000/v3
+export OS_PROJECT_ID=your-project-id
+export OS_PROJECT_NAME="your-project-name"
+export OS_USER_DOMAIN_NAME="Default"
+export OS_USERNAME="your-username"
+export OS_PASSWORD="your-password"
+export OS_AUTH_TYPE=password
+export OS_IDENTITY_API_VERSION=3
+
+# Optional: Set these if needed for your OpenStack setup
+# export OS_PROJECT_DOMAIN_NAME="your-project-domain"
+# export OS_USER_DOMAIN_ID=your-user-domain-id
+# export OS_REGION_NAME="your-region"
+
+echo "OpenStack environment variables have been set"
+echo "Auth URL: $OS_AUTH_URL"
+echo "Username: $OS_USERNAME"
+echo "Project: $OS_PROJECT_NAME"
+
+# Verify connection (if openstack CLI is installed)
+if command -v openstack &> /dev/null; then
+    echo "Testing OpenStack connection..."
+    openstack token issue --format value --column expires 2>/dev/null && echo "✅ OpenStack connection successful" || echo "❌ OpenStack connection failed - check your credentials"
+fi

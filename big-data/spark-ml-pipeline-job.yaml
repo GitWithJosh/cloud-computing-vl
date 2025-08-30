@@ -1,0 +1,526 @@
+# 🗂️ Apache Spark ML Pipeline Job
+# ================================
+# Kubernetes Job für Apache Spark ML Processing mit MinIO Data Lake
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spark-ml-pipeline-job
+  namespace: big-data
+  labels:
+    app: spark-ml-pipeline
+    type: spark-ml
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 3600  # 1 Stunde Timeout
+  template:
+    metadata:
+      labels:
+        app: spark-ml-pipeline
+        type: spark-ml
+    spec:
+      restartPolicy: Never
+      initContainers:
+      - name: wait-for-minio
+        image: busybox:1.28
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for MinIO Data Lake to be ready..."
+          until nc -z minio.big-data.svc.cluster.local 9000; do 
+            echo "MinIO not ready, waiting 5 seconds..."
+            sleep 5
+          done
+          echo "✅ MinIO Data Lake is ready!"
+      - name: check-data-exists
+        image: minio/mc:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Checking if data exists in MinIO..."
+          mc alias set myminio http://minio.big-data.svc.cluster.local:9000 minioadmin minioadmin123
+          
+          if mc ls myminio/raw-data/large_food_dataset_latest.csv >/dev/null 2>&1; then
+            echo "✅ Data found in MinIO raw-data bucket"
+          else
+            echo "❌ No data found in MinIO. Please run data ingestion first!"
+            echo "Run: ./version-manager.sh data-ingestion"
+            exit 1
+          fi
+      containers:
+      - name: spark-ml-pipeline
+        image: openjdk:11-jre-slim
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "🚀 Starting Simple ML Pipeline"
+          echo "============================="
+          
+          # Install Python and pip
+          apt-get update && apt-get install -y python3 python3-pip
+          
+          # Install packages
+          pip3 install minio pyspark==3.3.0 numpy pandas
+          
+          # Simple environment setup
+          export HOME=/tmp
+          mkdir -p /tmp/.ivy2 /tmp/spark-warehouse
+          
+          # Create the Spark ML pipeline script
+          cat > /app/spark_ml_pipeline.py << 'PYSPARK'
+          #!/usr/bin/env python3
+          """
+          🚀 Apache Spark ML Pipeline with MinIO Data Lake
+          ==============================================
+          """
+          
+          import logging
+          import json
+          import io
+          import pickle
+          from datetime import datetime
+          from minio import Minio
+          from minio.error import S3Error
+          
+          # PySpark imports
+          from pyspark.sql import SparkSession
+          from pyspark.sql.functions import col, when, isnan, count, mean, stddev
+          from pyspark.sql.types import StructType, StructField, StringType, DoubleType
+          from pyspark.ml.feature import VectorAssembler, StringIndexer, StandardScaler
+          from pyspark.ml.regression import RandomForestRegressor, LinearRegression
+          from pyspark.ml.clustering import KMeans
+          from pyspark.ml.evaluation import RegressionEvaluator
+          from pyspark.ml import Pipeline
+          from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+          
+          # Logging Setup
+          logging.basicConfig(
+              level=logging.INFO,
+              format='%(asctime)s | %(levelname)s | %(message)s',
+              datefmt='%H:%M:%S'
+          )
+          logger = logging.getLogger(__name__)
+          
+          class SparkMLPipeline:
+              """Apache Spark ML Pipeline für Food Calorie Analysis"""
+              
+              def __init__(self):
+                  """Initialize Spark Session and MinIO client"""
+                  logger.info("🔥 Initializing Apache Spark Session...")
+                  
+                  self.spark = SparkSession.builder \
+                      .appName("FoodCalorieMLPipeline") \
+                      .master("local[*]") \
+                      .getOrCreate()
+                  
+                  # Set log level to reduce verbose output
+                  self.spark.sparkContext.setLogLevel("OFF")
+                  
+                  logger.info("✅ Spark Session initialized")
+                  logger.info(f"   Spark Version: {self.spark.version}")
+                  logger.info(f"   Available cores: {self.spark.sparkContext.defaultParallelism}")
+                  
+                  # Initialize MinIO client
+                  self.minio_client = Minio(
+                      'minio.big-data.svc.cluster.local:9000',
+                      access_key='minioadmin',
+                      secret_key='minioadmin123',
+                      secure=False
+                  )
+                  self.raw_bucket = 'raw-data'
+                  self.processed_bucket = 'processed-data'
+                  self.models_bucket = 'ml-models'
+                  
+                  self.timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                  
+              def ensure_buckets_exist(self):
+                  """Ensure all required buckets exist"""
+                  buckets = [self.raw_bucket, self.processed_bucket, self.models_bucket]
+                  
+                  for bucket in buckets:
+                      try:
+                          if not self.minio_client.bucket_exists(bucket):
+                              self.minio_client.make_bucket(bucket)
+                              logger.info(f"✅ Created bucket: {bucket}")
+                          else:
+                              logger.info(f"📁 Bucket exists: {bucket}")
+                      except Exception as e:
+                          logger.warning(f"⚠️ Bucket check/creation failed for {bucket}: {e}")
+                  
+              def load_data_from_minio(self):
+                  """Load data from MinIO using Spark"""
+                  logger.info("📥 Loading data from MinIO Data Lake...")
+                  
+                  try:
+                      # First, check if the file exists
+                      try:
+                          stat = self.minio_client.stat_object(self.raw_bucket, "large_food_dataset_latest.csv")
+                          logger.info(f"✅ Found data file: large_food_dataset_latest.csv ({stat.size:,} bytes)")
+                      except Exception as stat_e:
+                          logger.error(f"❌ Data file not found: {stat_e}")
+                          logger.error("Please run data ingestion first: ./version-manager.sh data-ingestion")
+                          raise
+                      
+                      # Download CSV data from MinIO to local temp file
+                      logger.info("📥 Downloading data from MinIO...")
+                      response = self.minio_client.get_object(self.raw_bucket, "large_food_dataset_latest.csv")
+                      
+                      # Save to temporary file
+                      with open("/tmp/food_data.csv", "wb") as f:
+                          for data in response.stream(32*1024):
+                              f.write(data)
+                      
+                      logger.info("📁 Data saved to local temp file")
+                      
+                      # Load into Spark DataFrame
+                      logger.info("🔥 Loading data into Spark DataFrame...")
+                      df = self.spark.read.csv("/tmp/food_data.csv", header=True, inferSchema=True)
+                      
+                      row_count = df.count()
+                      col_count = len(df.columns)
+                      
+                      logger.info(f"✅ Loaded {row_count:,} rows with {col_count} columns")
+                      logger.info("📊 Data Schema:")
+                      df.printSchema()
+                      
+                      if row_count == 0:
+                          logger.error("❌ Dataset is empty! Please check data ingestion.")
+                          raise ValueError("Empty dataset")
+                      
+                      return df
+                      
+                  except Exception as e:
+                      logger.error(f"❌ Failed to load data from MinIO: {e}")
+                      logger.error(f"   Error type: {type(e).__name__}")
+                      raise
+                      
+              def data_exploration_and_cleaning(self, df):
+                  """Perform data exploration and cleaning with Spark"""
+                  logger.info("🔍 Data Exploration and Cleaning...")
+                  
+                  # Show basic statistics
+                  logger.info("📊 Dataset Statistics:")
+                  df.describe().show()
+                  
+                  # Check for missing values
+                  logger.info("🔍 Missing Values Check:")
+                  missing_data = df.select([count(when(col(c).isNull(), c)).alias(c) for c in df.columns])
+                  missing_data.show()
+                  
+                  # Show value counts for categorical columns
+                  logger.info("📋 Category Distribution:")
+                  df.groupBy("category").count().orderBy(col("count").desc()).show()
+                  
+                  logger.info("🍽️ Meal Time Distribution:")
+                  df.groupBy("meal_time").count().orderBy(col("count").desc()).show()
+                  
+                  # Clean data: remove outliers and null values
+                  df_clean = df.filter(
+                      (col("calories") > 0) & 
+                      (col("calories") < 2000) &  # Remove extreme outliers
+                      (col("weight_grams") > 5) & 
+                      (col("weight_grams") < 2000) &
+                      col("food_item").isNotNull() &
+                      col("category").isNotNull()
+                  )
+                  
+                  logger.info(f"✅ Cleaned dataset: {df_clean.count():,} rows (removed {df.count() - df_clean.count():,} outliers)")
+                  
+                  return df_clean
+                  
+              def feature_engineering(self, df):
+                  """Feature Engineering with Spark SQL"""
+                  logger.info("🔧 Feature Engineering...")
+                  
+                  # Create temporary view for SQL operations
+                  df.createOrReplaceTempView("food_data")
+                  
+                  # Advanced feature engineering using Spark SQL
+                  df_features = self.spark.sql("""
+                      SELECT *,
+                          weight_grams / 100 as weight_normalized,
+                          calories / weight_grams as calorie_density,
+                          protein_g / (protein_g + carbs_g + fat_g + 0.001) as protein_ratio,
+                          carbs_g / (protein_g + carbs_g + fat_g + 0.001) as carb_ratio,
+                          fat_g / (protein_g + carbs_g + fat_g + 0.001) as fat_ratio,
+                          CASE 
+                              WHEN calories < 100 THEN 'low_calorie'
+                              WHEN calories < 300 THEN 'medium_calorie'
+                              ELSE 'high_calorie'
+                          END as calorie_category,
+                          CASE
+                              WHEN protein_g > 20 THEN 'high_protein'
+                              WHEN protein_g > 10 THEN 'medium_protein'
+                              ELSE 'low_protein'
+                          END as protein_category
+                      FROM food_data
+                  """)
+                  
+                  logger.info("✅ Feature engineering completed")
+                  logger.info("🎯 New Features Created:")
+                  feature_cols = ['weight_normalized', 'calorie_density', 'protein_ratio', 'carb_ratio', 'fat_ratio']
+                  df_features.select(feature_cols).describe().show()
+                  
+                  return df_features
+                  
+              def build_ml_pipeline(self, df):
+                  """Build comprehensive ML pipeline with Spark MLlib"""
+                  logger.info("🤖 Building Spark ML Pipeline...")
+                  
+                  # Prepare features for ML
+                  categorical_cols = ['category', 'meal_time', 'preparation_method']
+                  numerical_cols = ['weight_grams', 'protein_g', 'carbs_g', 'fat_g', 'weight_normalized', 
+                                  'calorie_density', 'protein_ratio', 'carb_ratio', 'fat_ratio']
+                  
+                  # String indexers for categorical variables
+                  indexers = [StringIndexer(inputCol=col, outputCol=f"{col}_indexed") 
+                             for col in categorical_cols]
+                  
+                  # Feature assembler
+                  indexed_categorical_cols = [f"{col}_indexed" for col in categorical_cols]
+                  all_feature_cols = numerical_cols + indexed_categorical_cols
+                  
+                  assembler = VectorAssembler(inputCols=all_feature_cols, outputCol="features_raw")
+                  scaler = StandardScaler(inputCol="features_raw", outputCol="features", withStd=True, withMean=True)
+                  
+                  # Random Forest Regressor for calorie prediction
+                  rf = RandomForestRegressor(featuresCol="features", labelCol="calories", 
+                                           numTrees=50, maxDepth=10, seed=42)
+                  
+                  # Create ML Pipeline
+                  pipeline_stages = indexers + [assembler, scaler, rf]
+                  pipeline = Pipeline(stages=pipeline_stages)
+                  
+                  logger.info("✅ ML Pipeline built successfully")
+                  return pipeline, all_feature_cols
+                  
+              def train_and_evaluate_model(self, df, pipeline):
+                  """Train and evaluate the ML model"""
+                  logger.info("📚 Training ML Model...")
+                  
+                  # Split data
+                  train_data, test_data = df.randomSplit([0.8, 0.2], seed=42)
+                  
+                  logger.info(f"📊 Training set: {train_data.count():,} rows")
+                  logger.info(f"📊 Test set: {test_data.count():,} rows")
+                  
+                  # Train the model
+                  model = pipeline.fit(train_data)
+                  
+                  # Make predictions
+                  predictions = model.transform(test_data)
+                  
+                  # Evaluate the model
+                  evaluator = RegressionEvaluator(labelCol="calories", predictionCol="prediction")
+                  
+                  rmse = evaluator.evaluate(predictions, {evaluator.metricName: "rmse"})
+                  mae = evaluator.evaluate(predictions, {evaluator.metricName: "mae"})
+                  r2 = evaluator.evaluate(predictions, {evaluator.metricName: "r2"})
+                  
+                  logger.info("📈 Model Performance Metrics:")
+                  logger.info(f"   RMSE: {rmse:.2f}")
+                  logger.info(f"   MAE: {mae:.2f}")
+                  logger.info(f"   R²: {r2:.4f}")
+                  
+                  # Show some predictions
+                  logger.info("🔮 Sample Predictions:")
+                  predictions.select("food_item", "calories", "prediction", "category").show(10)
+                  
+                  return model, {"rmse": rmse, "mae": mae, "r2": r2}
+                  
+              def clustering_analysis(self, df):
+                  """Perform clustering analysis with Spark MLlib"""
+                  logger.info("🎯 Performing K-Means Clustering Analysis...")
+                  
+                  # Prepare features for clustering
+                  clustering_cols = ['calories', 'protein_g', 'carbs_g', 'fat_g', 'weight_grams']
+                  assembler = VectorAssembler(inputCols=clustering_cols, outputCol="cluster_features")
+                  scaler = StandardScaler(inputCol="cluster_features", outputCol="scaled_features", withStd=True, withMean=True)
+                  
+                  # Apply transformations
+                  df_with_features = assembler.transform(df)
+                  df_scaled = scaler.fit(df_with_features).transform(df_with_features)
+                  
+                  # K-Means clustering
+                  kmeans = KMeans(featuresCol="scaled_features", predictionCol="cluster", k=5, seed=42)
+                  cluster_model = kmeans.fit(df_scaled)
+                  
+                  # Get cluster predictions
+                  clustered_df = cluster_model.transform(df_scaled)
+                  
+                  # Analyze clusters
+                  logger.info("📊 Cluster Analysis:")
+                  cluster_summary = clustered_df.groupBy("cluster").agg(
+                      mean("calories").alias("avg_calories"),
+                      mean("protein_g").alias("avg_protein"),
+                      mean("carbs_g").alias("avg_carbs"),
+                      mean("fat_g").alias("avg_fat"),
+                      count("*").alias("count")
+                  ).orderBy("cluster")
+                  
+                  cluster_summary.show()
+                  
+                  return cluster_model, clustered_df
+                  
+              def save_results_to_minio(self, model, metrics, cluster_model):
+                  """Save ML results back to MinIO"""
+                  logger.info("💾 Saving results to MinIO Data Lake...")
+                  
+                  try:
+                      # Save simple model metadata as pickle
+                      logger.info("🤖 Saving trained model...")
+                      
+                      # Simple model data without complex objects
+                      model_data = {
+                          "model_type": "RandomForestRegressor",
+                          "training_timestamp": self.timestamp,
+                          "metrics": metrics,
+                          "features_count": len(all_feature_cols) if 'all_feature_cols' in locals() else 0,
+                          "spark_version": self.spark.version
+                      }
+                      
+                      model_buffer = io.BytesIO()
+                      pickle.dump(model_data, model_buffer)
+                      model_buffer.seek(0)
+                      
+                      self.minio_client.put_object(
+                          self.models_bucket,
+                          f"spark_ml_model_{self.timestamp}.pkl",
+                          model_buffer,
+                          length=len(model_buffer.getvalue()),
+                          content_type='application/octet-stream'
+                      )
+                      
+                      # Save model metrics and metadata
+                      results = {
+                          "model_type": "RandomForestRegressor",
+                          "spark_version": self.spark.version,
+                          "training_timestamp": self.timestamp,
+                          "metrics": metrics,
+                          "model_file": f"spark_ml_model_{self.timestamp}.pkl",
+                          "features_used": ["weight_grams", "protein_g", "carbs_g", "fat_g", "category", "meal_time", "preparation_method"],
+                          "model_parameters": {
+                              "numTrees": 50,
+                              "maxDepth": 10,
+                              "seed": 42
+                          },
+                          "clustering": {
+                              "algorithm": "KMeans",
+                              "k": 5,
+                              "features": ["calories", "protein_g", "carbs_g", "fat_g", "weight_grams"]
+                          }
+                      }
+                      
+                      # Upload results metadata
+                      results_buffer = io.BytesIO()
+                      results_buffer.write(json.dumps(results, indent=2).encode())
+                      results_buffer.seek(0)
+                      
+                      self.minio_client.put_object(
+                          self.processed_bucket,
+                          f"spark_ml_results_{self.timestamp}.json",
+                          results_buffer,
+                          length=len(results_buffer.getvalue()),
+                          content_type='application/json'
+                      )
+                      
+                      # Also save as latest
+                      results_buffer.seek(0)
+                      self.minio_client.put_object(
+                          self.processed_bucket,
+                          "spark_ml_results_latest.json",
+                          results_buffer,
+                          length=len(results_buffer.getvalue()),
+                          content_type='application/json'
+                      )
+                      
+                      logger.info("✅ Results saved to MinIO Data Lake")
+                      logger.info(f"📁 Files saved:")
+                      logger.info(f"   - ml-models/spark_ml_model_{self.timestamp}.pkl")
+                      logger.info(f"   - processed-data/spark_ml_results_{self.timestamp}.json")
+                      logger.info(f"   - processed-data/spark_ml_results_latest.json")
+                      
+                  except Exception as e:
+                      logger.error(f"❌ Failed to save results: {e}")
+                      
+              def cleanup(self):
+                  """Cleanup Spark session"""
+                  logger.info("🧹 Cleaning up Spark session...")
+                  self.spark.stop()
+                  logger.info("✅ Spark session stopped")
+          
+          def main():
+              """Main Spark ML Pipeline execution"""
+              
+              logger.info("🚀 Starting Apache Spark ML Pipeline")
+              logger.info("=" * 60)
+              
+              pipeline = None
+              try:
+                  # Initialize Spark ML Pipeline
+                  pipeline = SparkMLPipeline()
+                  
+                  # Ensure buckets exist
+                  pipeline.ensure_buckets_exist()
+                  
+                  # 1. Load data from MinIO
+                  df = pipeline.load_data_from_minio()
+                  
+                  # 2. Data exploration and cleaning
+                  df_clean = pipeline.data_exploration_and_cleaning(df)
+                  
+                  # 3. Feature engineering
+                  df_features = pipeline.feature_engineering(df_clean)
+                  
+                  # 4. Build and train ML model
+                  ml_pipeline, feature_cols = pipeline.build_ml_pipeline(df_features)
+                  model, metrics = pipeline.train_and_evaluate_model(df_features, ml_pipeline)
+                  
+                  # 5. Clustering analysis
+                  cluster_model, clustered_df = pipeline.clustering_analysis(df_features)
+                  
+                  # 6. Save results to MinIO
+                  pipeline.save_results_to_minio(model, metrics, cluster_model)
+                  
+                  logger.info("🎉 Spark ML Pipeline completed successfully!")
+                  
+              except Exception as e:
+                  logger.error(f"❌ Spark ML Pipeline failed: {e}")
+                  raise
+              finally:
+                  if pipeline:
+                      pipeline.cleanup()
+          
+          if __name__ == "__main__":
+              main()
+          PYSPARK
+          
+          # Run the Spark ML pipeline
+          echo "🚀 Starting Apache Spark ML Pipeline execution..."
+          python3 /app/spark_ml_pipeline.py
+          
+          echo "✅ Apache Spark ML Pipeline completed!"
+        env:
+        - name: SPARK_ML_JOB_TIMESTAMP
+          value: "$(date +%Y%m%d-%H%M%S)"
+        - name: PYSPARK_PYTHON
+          value: "python3"
+        - name: PYSPARK_DRIVER_PYTHON
+          value: "python3"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: spark-workspace
+          mountPath: /app
+        - name: spark-tmp
+          mountPath: /tmp
+      volumes:
+      - name: spark-workspace
+        emptyDir: {}
+      - name: spark-tmp
+        emptyDir: {}

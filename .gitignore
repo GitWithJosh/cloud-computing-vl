@@ -1,1 +1,28 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.terraform.lock.*
+terraform.tfvars
+
+# Secrets & Credentials
+terraform.tfvars.backup
+*secret*
+*.pem
+*.key
+openrc.sh
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Env
 .env

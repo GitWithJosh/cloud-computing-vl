@@ -1,0 +1,629 @@
+# 🗂️ Database-Driven Big Data ML Pipeline Job
+# ==========================================
+# Kubernetes Job für echte Datenbank-basierte Big Data Verarbeitung
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-ml-pipeline-job
+  namespace: big-data
+  labels:
+    app: big-data-ml
+    type: database-pipeline
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 3600  # 1 Stunde Timeout
+  template:
+    metadata:
+      labels:
+        app: big-data-ml
+        type: database-pipeline
+    spec:
+      restartPolicy: Never
+      initContainers:
+      - name: wait-for-minio
+        image: busybox:1.28
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for MinIO Data Lake to be ready..."
+          until nc -z minio.big-data.svc.cluster.local 9000; do 
+            echo "MinIO not ready, waiting 5 seconds..."
+            sleep 5
+          done
+          echo "✅ MinIO Data Lake is ready!"
+      containers:
+      - name: database-ml-pipeline
+        image: python:3.11-slim
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "🚀 Starting Database-Driven Big Data ML Pipeline"
+          echo "================================================="
+          
+          # Install required packages
+          echo "📦 Installing required Python packages..."
+          pip install --no-cache-dir pandas numpy scikit-learn minio
+          
+          # Create the pipeline script
+          cat > /app/database_ml_pipeline.py << 'PYPIPELINE'
+          #!/usr/bin/env python3
+          """
+          🗂️ Database-Driven Big Data ML Pipeline 
+          ==========================================
+          
+          """
+          
+          import pandas as pd
+          import numpy as np
+          import json
+          import time
+          import logging
+          import os
+          import io
+          import pickle
+          from datetime import datetime
+          from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+          from sklearn.model_selection import train_test_split
+          from sklearn.preprocessing import LabelEncoder, StandardScaler
+          from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+          from sklearn.cluster import KMeans
+          from minio import Minio
+          from minio.error import S3Error
+          
+          # Logging Setup
+          logging.basicConfig(
+              level=logging.INFO,
+              format='%(asctime)s | %(levelname)s | %(message)s',
+              datefmt='%H:%M:%S'
+          )
+          logger = logging.getLogger(__name__)
+          
+          class MinIODataLake:
+              """MinIO Data Lake Client für Big Data Operations"""
+              
+              def __init__(self):
+                  """Initialisiere MinIO Client"""
+                  self.client = Minio(
+                      'minio.big-data.svc.cluster.local:9000',
+                      access_key='minioadmin',
+                      secret_key='minioadmin123',
+                      secure=False
+                  )
+                  self.raw_bucket = 'raw-data'
+                  self.processed_bucket = 'processed-data'
+                  self.models_bucket = 'ml-models'
+                  
+                  logger.info("🗂️ MinIO Data Lake Client initialized")
+                  
+              def ensure_buckets_exist(self):
+                  """Stelle sicher, dass alle benötigten Buckets existieren"""
+                  buckets = [self.raw_bucket, self.processed_bucket, self.models_bucket]
+                  
+                  for bucket in buckets:
+                      try:
+                          if not self.client.bucket_exists(bucket):
+                              self.client.make_bucket(bucket)
+                              logger.info(f"✅ Created bucket: {bucket}")
+                          else:
+                              logger.info(f"✅ Bucket exists: {bucket}")
+                      except S3Error as e:
+                          logger.error(f"❌ Error with bucket {bucket}: {e}")
+                          
+              def upload_dataframe(self, df, bucket, filename, format='csv'):
+                  """Upload DataFrame als CSV zu MinIO"""
+                  try:
+                      buffer = io.BytesIO()
+                      df.to_csv(buffer, index=False)
+                      buffer.seek(0)
+                      
+                      self.client.put_object(
+                          bucket,
+                          filename,
+                          buffer,
+                          length=len(buffer.getvalue()),
+                          content_type='text/csv'
+                      )
+                      
+                      logger.info(f"📤 Uploaded {filename} to {bucket} ({len(df):,} rows)")
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"❌ Upload failed: {e}")
+                      return False
+                      
+              def download_dataframe(self, bucket, filename):
+                  """Download und lade DataFrame aus MinIO"""
+                  try:
+                      response = self.client.get_object(bucket, filename)
+                      df = pd.read_csv(io.BytesIO(response.data))
+                      logger.info(f"📥 Downloaded {filename} from {bucket} ({len(df):,} rows)")
+                      return df
+                      
+                  except Exception as e:
+                      logger.error(f"❌ Download failed: {e}")
+                      return None
+                      
+              def list_files(self, bucket):
+                  """Liste alle Dateien in einem Bucket"""
+                  try:
+                      objects = self.client.list_objects(bucket)
+                      files = [obj.object_name for obj in objects]
+                      logger.info(f"📋 Found {len(files)} files in {bucket}")
+                      return files
+                  except Exception as e:
+                      logger.error(f"❌ List files failed: {e}")
+                      return []
+                      
+              def save_model(self, model, filename):
+                  """Speichere ML Model als Pickle im Data Lake"""
+                  try:
+                      buffer = io.BytesIO()
+                      pickle.dump(model, buffer)
+                      buffer.seek(0)
+                      
+                      self.client.put_object(
+                          self.models_bucket,
+                          filename,
+                          buffer,
+                          length=len(buffer.getvalue()),
+                          content_type='application/octet-stream'
+                      )
+                      
+                      logger.info(f"🤖 Saved model: {filename}")
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"❌ Model save failed: {e}")
+                      return False
+          
+          class BigDataFoodProcessor:
+              """Big Data Processor für Food Calorie Analysis"""
+              
+              def __init__(self, data_lake):
+                  self.data_lake = data_lake
+                  self.timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                  
+              def generate_large_food_dataset(self, size=20000):
+                  """Generiere großen realistischen Food Dataset für Big Data Processing"""
+                  
+                  logger.info(f"🏭 Generating large food dataset with {size:,} samples...")
+                  
+                  # Basis Food-Kategorien mit realistischen Daten
+                  food_categories = {
+                      'protein': [
+                          {'name': 'Chicken Breast', 'base_cal': 165, 'protein': 31, 'carbs': 0, 'fat': 3.6},
+                          {'name': 'Salmon', 'base_cal': 208, 'protein': 20, 'carbs': 0, 'fat': 12},
+                          {'name': 'Beef', 'base_cal': 250, 'protein': 26, 'carbs': 0, 'fat': 15},
+                          {'name': 'Eggs', 'base_cal': 155, 'protein': 13, 'carbs': 1.1, 'fat': 11},
+                          {'name': 'Tofu', 'base_cal': 76, 'protein': 8, 'carbs': 1.9, 'fat': 4.8},
+                          {'name': 'Greek Yogurt', 'base_cal': 59, 'protein': 10, 'carbs': 3.6, 'fat': 0.4},
+                      ],
+                      'grain': [
+                          {'name': 'Brown Rice', 'base_cal': 111, 'protein': 2.6, 'carbs': 23, 'fat': 0.9},
+                          {'name': 'Quinoa', 'base_cal': 120, 'protein': 4.4, 'carbs': 22, 'fat': 1.9},
+                          {'name': 'Oats', 'base_cal': 389, 'protein': 17, 'carbs': 66, 'fat': 7},
+                          {'name': 'Pasta', 'base_cal': 131, 'protein': 5, 'carbs': 25, 'fat': 1.1},
+                          {'name': 'Bread Whole', 'base_cal': 247, 'protein': 13, 'carbs': 41, 'fat': 4.2},
+                      ],
+                      'vegetable': [
+                          {'name': 'Broccoli', 'base_cal': 34, 'protein': 2.8, 'carbs': 7, 'fat': 0.4},
+                          {'name': 'Spinach', 'base_cal': 23, 'protein': 2.9, 'carbs': 3.6, 'fat': 0.4},
+                          {'name': 'Sweet Potato', 'base_cal': 86, 'protein': 1.6, 'carbs': 20, 'fat': 0.1},
+                          {'name': 'Carrots', 'base_cal': 41, 'protein': 0.9, 'carbs': 10, 'fat': 0.2},
+                          {'name': 'Bell Peppers', 'base_cal': 31, 'protein': 1, 'carbs': 7, 'fat': 0.3},
+                      ],
+                      'fruit': [
+                          {'name': 'Banana', 'base_cal': 89, 'protein': 1.1, 'carbs': 23, 'fat': 0.3},
+                          {'name': 'Apple', 'base_cal': 52, 'protein': 0.3, 'carbs': 14, 'fat': 0.2},
+                          {'name': 'Avocado', 'base_cal': 160, 'protein': 2, 'carbs': 9, 'fat': 15},
+                          {'name': 'Orange', 'base_cal': 47, 'protein': 0.9, 'carbs': 12, 'fat': 0.1},
+                          {'name': 'Berries', 'base_cal': 57, 'protein': 0.7, 'carbs': 14, 'fat': 0.3},
+                      ],
+                      'nuts': [
+                          {'name': 'Almonds', 'base_cal': 579, 'protein': 21, 'carbs': 22, 'fat': 50},
+                          {'name': 'Walnuts', 'base_cal': 654, 'protein': 15, 'carbs': 14, 'fat': 65},
+                          {'name': 'Peanuts', 'base_cal': 567, 'protein': 26, 'carbs': 16, 'fat': 49},
+                      ],
+                      'dairy': [
+                          {'name': 'Milk', 'base_cal': 42, 'protein': 3.4, 'carbs': 5, 'fat': 1},
+                          {'name': 'Cheese', 'base_cal': 113, 'protein': 7, 'carbs': 1, 'fat': 9},
+                          {'name': 'Butter', 'base_cal': 717, 'protein': 0.9, 'carbs': 0.1, 'fat': 81},
+                      ]
+                  }
+                  
+                  # Generiere große Datenmengen
+                  np.random.seed(42)  # Reproduzierbare Ergebnisse
+                  
+                  data = []
+                  for i in range(size):
+                      # Zufällige Kategorie und Food wählen
+                      category = np.random.choice(list(food_categories.keys()))
+                      food_info = np.random.choice(food_categories[category])
+                      
+                      # Realistische Portionsgrößen je Kategorie
+                      if category == 'protein':
+                          weight = np.random.normal(150, 50)  # 100-200g typisch
+                      elif category == 'grain':
+                          weight = np.random.normal(100, 30)  # 70-130g
+                      elif category == 'vegetable':
+                          weight = np.random.normal(120, 40)  # 80-160g
+                      elif category == 'fruit':
+                          weight = np.random.normal(130, 45)  # 85-175g
+                      elif category == 'nuts':
+                          weight = np.random.normal(30, 15)   # 15-45g (klein)
+                      else:  # dairy
+                          weight = np.random.normal(100, 35)
+                          
+                      weight = max(10, weight)  # Minimum 10g
+                      
+                      # Berechne Nährwerte basierend auf Gewicht
+                      factor = weight / 100.0
+                      calories = food_info['base_cal'] * factor
+                      protein = food_info['protein'] * factor  
+                      carbs = food_info['carbs'] * factor
+                      fat = food_info['fat'] * factor
+                      
+                      # Füge realistische Varianz hinzu
+                      calories *= np.random.normal(1.0, 0.05)  # ±5% Varianz
+                      
+                      # Zusätzliche Features für ML
+                      meal_time = np.random.choice(['breakfast', 'lunch', 'dinner', 'snack'])
+                      preparation = np.random.choice(['raw', 'cooked', 'fried', 'baked', 'steamed'])
+                      
+                      data.append({
+                          'sample_id': f'food_{i:06d}',
+                          'food_item': food_info['name'],
+                          'category': category,
+                          'weight_grams': round(weight, 1),
+                          'calories': round(calories, 1),
+                          'protein_g': round(protein, 2),
+                          'carbs_g': round(carbs, 2),
+                          'fat_g': round(fat, 2),
+                          'meal_time': meal_time,
+                          'preparation_method': preparation,
+                          'created_at': datetime.now().isoformat(),
+                          'data_source': 'big_data_generator'
+                      })
+                      
+                  df = pd.DataFrame(data)
+                  logger.info(f"✅ Generated {len(df):,} food samples across {df['category'].nunique()} categories")
+                  logger.info(f"📊 Dataset size: {df.memory_usage(deep=True).sum() / 1024 / 1024:.1f} MB")
+                  
+                  return df
+                  
+              def read_and_process_data_from_lake(self):
+                  """Lese und verarbeite Daten direkt aus dem Data Lake"""
+                  
+                  logger.info("🗂️ Reading data from MinIO Data Lake...")
+                  
+                  # 1. Liste verfügbare Dateien
+                  raw_files = self.data_lake.list_files(self.data_lake.raw_bucket)
+                  logger.info(f"📋 Available raw data files: {raw_files}")
+                  
+                  # 2. Lade existierende Daten oder generiere neue
+                  main_dataset = None
+                  
+                  # Versuche existierenden großen Datensatz zu laden
+                  large_dataset_files = [f for f in raw_files if 'large_food_dataset' in f and f.endswith('.csv')]
+                  
+                  if large_dataset_files:
+                      # Lade den neuesten großen Datensatz
+                      latest_file = sorted(large_dataset_files)[-1]
+                      logger.info(f"📥 Loading existing large dataset: {latest_file}")
+                      main_dataset = self.data_lake.download_dataframe(self.data_lake.raw_bucket, latest_file)
+                  
+                  if main_dataset is None or len(main_dataset) < 5000:
+                      # Generiere neuen großen Datensatz
+                      logger.info("🏭 Generating new large dataset for Big Data processing...")
+                      main_dataset = self.generate_large_food_dataset(20000)  # 20K Samples
+                      
+                      # Speichere im Data Lake
+                      filename = f'large_food_dataset_{self.timestamp}.csv'
+                      self.data_lake.upload_dataframe(main_dataset, self.data_lake.raw_bucket, filename)
+                      
+                  logger.info(f"📊 Working with dataset: {len(main_dataset):,} rows, {len(main_dataset.columns)} columns")
+                  logger.info(f"📋 Categories: {main_dataset['category'].value_counts().to_dict()}")
+                  
+                  return main_dataset
+                  
+              def perform_big_data_ml_processing(self, df):
+                  """Führe Big Data ML Processing auf dem kompletten Dataset durch"""
+                  
+                  logger.info("🤖 Starting Big Data ML Processing Pipeline...")
+                  
+                  # Feature Engineering auf großen Daten
+                  logger.info("🔧 Feature Engineering on large dataset...")
+                  
+                  # Label Encoding für kategorische Features
+                  le_food = LabelEncoder()
+                  le_category = LabelEncoder()
+                  le_meal = LabelEncoder()
+                  le_prep = LabelEncoder()
+                  
+                  df['food_encoded'] = le_food.fit_transform(df['food_item'])
+                  df['category_encoded'] = le_category.fit_transform(df['category'])
+                  df['meal_encoded'] = le_meal.fit_transform(df['meal_time'])
+                  df['prep_encoded'] = le_prep.fit_transform(df['preparation_method'])
+                  
+                  # Erweiterte numerische Features
+                  df['weight_normalized'] = df['weight_grams'] / 100
+                  df['weight_squared'] = df['weight_grams'] ** 2
+                  df['log_weight'] = np.log1p(df['weight_grams'])
+                  df['calorie_density'] = df['calories'] / df['weight_grams']
+                  df['protein_ratio'] = df['protein_g'] / (df['protein_g'] + df['carbs_g'] + df['fat_g'] + 0.001)
+                  df['carb_ratio'] = df['carbs_g'] / (df['protein_g'] + df['carbs_g'] + df['fat_g'] + 0.001)
+                  df['fat_ratio'] = df['fat_g'] / (df['protein_g'] + df['carbs_g'] + df['fat_g'] + 0.001)
+                  
+                  # Clustering für Pattern Recognition
+                  logger.info("🎯 Performing K-Means clustering on nutritional profiles...")
+                  nutrition_features = ['protein_ratio', 'carb_ratio', 'fat_ratio', 'calorie_density']
+                  kmeans = KMeans(n_clusters=5, random_state=42)
+                  df['nutrition_cluster'] = kmeans.fit_predict(df[nutrition_features])
+                  
+                  # Feature Matrix für ML
+                  feature_columns = [
+                      'food_encoded', 'category_encoded', 'meal_encoded', 'prep_encoded',
+                      'weight_grams', 'weight_normalized', 'weight_squared', 'log_weight',
+                      'protein_g', 'carbs_g', 'fat_g', 'nutrition_cluster'
+                  ]
+                  
+                  X = df[feature_columns]
+                  y = df['calories']
+                  
+                  logger.info(f"🔧 Feature matrix: {X.shape[1]} features, {len(y):,} samples")
+                  
+                  # Train/Test Split für große Daten
+                  X_train, X_test, y_train, y_test = train_test_split(
+                      X, y, test_size=0.2, random_state=42, stratify=df['category']
+                  )
+                  
+                  logger.info(f"📊 Data split: Train={len(X_train):,}, Test={len(X_test):,}")
+                  
+                  # Random Forest Model trainieren
+                  logger.info("🌲 Training Random Forest...")
+                  model = RandomForestRegressor(
+                      n_estimators=100,
+                      random_state=42,
+                      max_depth=15,
+                      min_samples_split=10,
+                      n_jobs=-1  # Parallelisierung
+                  )
+                  model.fit(X_train, y_train)
+                  
+                  # Model Evaluation
+                  y_test_pred = model.predict(X_test)
+                  test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
+                  test_r2 = r2_score(y_test, y_test_pred)
+                  test_mae = mean_absolute_error(y_test, y_test_pred)
+                  
+                  logger.info(f"   ✅ Model trained successfully!")
+                  logger.info(f"   📊 Test RMSE: {test_rmse:.2f} kcal")
+                  logger.info(f"   📊 Test R²: {test_r2:.4f}")
+                  logger.info(f"   📊 Test MAE: {test_mae:.2f} kcal")
+                  
+                  results = {
+                      'test_rmse': round(test_rmse, 2),
+                      'test_r2': round(test_r2, 4),
+                      'test_mae': round(test_mae, 2),
+                      'train_samples': len(X_train),
+                      'test_samples': len(X_test)
+                  }
+                  
+                  # Feature Importance Analysis
+                  feature_importance = pd.DataFrame({
+                      'feature': feature_columns,
+                      'importance': model.feature_importances_
+                  }).sort_values('importance', ascending=False)
+                  
+                  logger.info("🎯 Top 5 Feature Importance:")
+                  for i, row in feature_importance.head().iterrows():
+                      logger.info(f"   {row['feature']}: {row['importance']:.4f}")
+                  
+                  return {
+                      'model': model,
+                      'results': results,
+                      'feature_columns': feature_columns,
+                      'encoders': {
+                          'food': le_food,
+                          'category': le_category, 
+                          'meal': le_meal,
+                          'preparation': le_prep
+                      },
+                      'clusterer': kmeans,
+                      'processed_data': df,
+                      'feature_importance': feature_importance
+                  }
+                  
+              def batch_predictions_on_new_data(self, ml_results):
+                  """Batch Predictions auf neuen Daten aus dem Data Lake"""
+                  
+                  logger.info("🔮 Running batch predictions on new data...")
+                  
+                  # Simuliere neue eingehende Daten
+                  new_data = self.generate_large_food_dataset(2000)  # 2K neue Samples
+                  
+                  model = ml_results['model']
+                  encoders = ml_results['encoders']
+                  clusterer = ml_results['clusterer']
+                  feature_columns = ml_results['feature_columns']
+                  
+                  # Feature Engineering auf neuen Daten
+                  new_data['food_encoded'] = encoders['food'].transform(new_data['food_item'])
+                  new_data['category_encoded'] = encoders['category'].transform(new_data['category'])
+                  new_data['meal_encoded'] = encoders['meal'].transform(new_data['meal_time'])
+                  new_data['prep_encoded'] = encoders['preparation'].transform(new_data['preparation_method'])
+                  
+                  new_data['weight_normalized'] = new_data['weight_grams'] / 100
+                  new_data['weight_squared'] = new_data['weight_grams'] ** 2
+                  new_data['log_weight'] = np.log1p(new_data['weight_grams'])
+                  new_data['calorie_density'] = new_data['calories'] / new_data['weight_grams']
+                  new_data['protein_ratio'] = new_data['protein_g'] / (new_data['protein_g'] + new_data['carbs_g'] + new_data['fat_g'] + 0.001)
+                  new_data['carb_ratio'] = new_data['carbs_g'] / (new_data['protein_g'] + new_data['carbs_g'] + new_data['fat_g'] + 0.001)
+                  new_data['fat_ratio'] = new_data['fat_g'] / (new_data['protein_g'] + new_data['carbs_g'] + new_data['fat_g'] + 0.001)
+                  
+                  # Cluster Prediction
+                  nutrition_features = ['protein_ratio', 'carb_ratio', 'fat_ratio', 'calorie_density']
+                  new_data['nutrition_cluster'] = clusterer.predict(new_data[nutrition_features])
+                  
+                  # ML Predictions
+                  X_new = new_data[feature_columns]
+                  predictions = model.predict(X_new)
+                  
+                  # Prediction Analysis
+                  new_data['predicted_calories'] = predictions
+                  new_data['prediction_error'] = abs(new_data['calories'] - new_data['predicted_calories'])
+                  new_data['prediction_error_pct'] = (new_data['prediction_error'] / new_data['calories']) * 100
+                  
+                  # Statistics
+                  mean_error = new_data['prediction_error'].mean()
+                  mean_error_pct = new_data['prediction_error_pct'].mean()
+                  
+                  logger.info(f"🔮 Batch predictions completed on {len(new_data):,} samples")
+                  logger.info(f"📊 Mean prediction error: {mean_error:.2f} kcal ({mean_error_pct:.1f}%)")
+                  
+                  return new_data
+                  
+              def save_results_to_lake(self, ml_results, predictions_data):
+                  """Speichere alle Ergebnisse zurück im Data Lake"""
+                  
+                  logger.info("💾 Saving Big Data ML results back to Data Lake...")
+                  
+                  # 1. Speichere verarbeitete Trainingsdaten
+                  processed_filename = f'processed_training_data_{self.timestamp}.csv'
+                  self.data_lake.upload_dataframe(
+                      ml_results['processed_data'], 
+                      self.data_lake.processed_bucket, 
+                      processed_filename
+                  )
+                  
+                  # 2. Speichere Batch Predictions
+                  predictions_filename = f'batch_predictions_{self.timestamp}.csv'
+                  self.data_lake.upload_dataframe(
+                      predictions_data,
+                      self.data_lake.processed_bucket,
+                      predictions_filename
+                  )
+                  
+                  # 3. Speichere ML Model
+                  model_filename = f'random_forest_model_{self.timestamp}.pkl'
+                  self.data_lake.save_model(ml_results['model'], model_filename)
+                  
+                  # 4. Speichere Metadata und Ergebnisse als JSON
+                  metadata = {
+                      'pipeline_timestamp': self.timestamp,
+                      'training_samples': len(ml_results['processed_data']),
+                      'prediction_samples': len(predictions_data),
+                      'model_performance': ml_results['results'],
+                      'feature_importance': ml_results['feature_importance'].to_dict('records'),
+                      'prediction_statistics': {
+                          'mean_error_kcal': float(predictions_data['prediction_error'].mean()),
+                          'mean_error_percent': float(predictions_data['prediction_error_pct'].mean()),
+                          'accuracy_within_10_percent': float((predictions_data['prediction_error_pct'] <= 10).mean() * 100)
+                      },
+                      'data_lake_files': {
+                          'processed_training_data': processed_filename,
+                          'batch_predictions': predictions_filename,
+                          'model': model_filename
+                      },
+                      'processing_completed_at': datetime.now().isoformat()
+                  }
+                  
+                  # JSON Metadata speichern
+                  metadata_filename = f'ml_pipeline_metadata_{self.timestamp}.json'
+                  metadata_buffer = io.BytesIO(json.dumps(metadata, indent=2).encode())
+                  
+                  self.data_lake.client.put_object(
+                      self.data_lake.processed_bucket,
+                      metadata_filename,
+                      metadata_buffer,
+                      length=len(metadata_buffer.getvalue()),
+                      content_type='application/json'
+                  )
+                  
+                  logger.info(f"✅ Saved processed training data: {processed_filename}")
+                  logger.info(f"✅ Saved batch predictions: {predictions_filename}")
+                  logger.info(f"✅ Saved model: {model_filename}")
+                  logger.info(f"✅ Saved metadata: {metadata_filename}")
+                  
+                  return metadata
+          
+          def main():
+              """Hauptfunktion für Database-Driven Big Data Pipeline"""
+              
+              logger.info("🚀 Starting Database-Driven Big Data ML Pipeline")
+              logger.info("=" * 60)
+              
+              try:
+                  # 1. Initialize Data Lake Connection
+                  logger.info("🗂️ Step 1: Initialize MinIO Data Lake...")
+                  data_lake = MinIODataLake()
+                  data_lake.ensure_buckets_exist()
+                  
+                  # 2. Initialize Big Data Processor
+                  logger.info("🏭 Step 2: Initialize Big Data Processor...")
+                  processor = BigDataFoodProcessor(data_lake)
+                  
+                  # 3. Read and Process Data from Lake
+                  logger.info("📥 Step 3: Read data from Data Lake...")
+                  dataset = processor.read_and_process_data_from_lake()
+                  
+                  if dataset is None or len(dataset) == 0:
+                      logger.error("❌ No data available for processing")
+                      return
+                      
+                  # 4. Big Data ML Processing
+                  logger.info("🤖 Step 4: Big Data ML Processing...")
+                  ml_results = processor.perform_big_data_ml_processing(dataset)
+                  
+                  # 5. Batch Predictions on New Data
+                  logger.info("🔮 Step 5: Batch predictions on new data...")
+                  predictions = processor.batch_predictions_on_new_data(ml_results)
+                  
+                  # 6. Save Results back to Data Lake
+                  logger.info("💾 Step 6: Save results to Data Lake...")
+                  metadata = processor.save_results_to_lake(ml_results, predictions)
+                  
+                  # 7. Final Summary
+                  logger.info("")
+                  logger.info("🎉 BIG DATA PIPELINE COMPLETED SUCCESSFULLY!")
+                  logger.info("=" * 60)
+                  logger.info(f"📊 Processed {len(dataset):,} training samples")
+                  logger.info(f"🔮 Generated {len(predictions):,} batch predictions")
+                  logger.info(f"📈 Test R² Score: {ml_results['results']['test_r2']:.4f}")
+                  logger.info(f"📉 Test RMSE: {ml_results['results']['test_rmse']:.2f} kcal")
+                  logger.info(f"🎯 Prediction accuracy (±10%): {metadata['prediction_statistics']['accuracy_within_10_percent']:.1f}%")
+                  logger.info("")
+                  logger.info("📂 Data Lake Files Created:")
+                  for file_type, filename in metadata['data_lake_files'].items():
+                      logger.info(f"   {file_type}: {filename}")
+                      
+              except Exception as e:
+                  logger.error(f"❌ Pipeline failed: {e}")
+                  raise
+          
+          if __name__ == "__main__":
+              main()
+          PYPIPELINE
+          
+          # Run the pipeline
+          echo "🚀 Starting Database-Driven Big Data ML Pipeline execution..."
+          python /app/database_ml_pipeline.py
+          
+          echo "✅ Database-Driven Big Data Pipeline completed!"
+        env:
+        - name: ML_JOB_TIMESTAMP
+          value: "$(date +%Y%m%d-%H%M%S)"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: pipeline-workspace
+          mountPath: /app
+      volumes:
+      - name: pipeline-workspace
+        emptyDir: {}
