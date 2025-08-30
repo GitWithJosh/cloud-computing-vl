@@ -311,10 +311,13 @@ spec:
 # 2. Kafka Cluster Installation
 ./version-manager.sh setup-kafka
 
-# 3. Java Application Build & Deployment
+# 3. Build Java application (requires maven)
+./build-kafka-streams.sh
+
+# 4. Java Application Build & Deployment
 ./version-manager.sh deploy-ml-stream-processor
 
-# 4. Monitoring UI Setup
+# 5. Monitoring UI Setup
 ./version-manager.sh deploy-kafka-ui
 ```
 
@@ -327,6 +330,7 @@ spec:
 
 # Stream Processing Demo
 ./version-manager.sh kafka-stream-demo
+./verion-manager.sh watch-streaming-logs
 
 # Horizontal Scaling Test
 ./version-manager.sh trigger-intensive-load-test
@@ -343,10 +347,6 @@ spec:
 ./version-manager.sh kafka-status
 ./version-manager.sh stream-status
 ./version-manager.sh hpa-status
-
-# Data Flow Analysis
-./version-manager.sh show-data-flow
-./version-manager.sh kafka-show-streams
 ```
 
 ## Performance und Skalierbarkeit
@@ -422,9 +422,8 @@ resources:
 
 ### Bonus-Features
 
-- **Java-basierte Enterprise-Grade Implementation**: Statt Shell-Script-basierte Lösung
+- **Java-basierte Implementation**: Statt Shell-Script-basierte Lösung
 - **Moderne Web-UI**: Kafka-UI für grafisches Monitoring
-- **Production-Ready Security**: Non-Root Container mit Security Context
 - **Comprehensive Tooling**: Vollständig automatisierte Deployment- und Demo-Scripts
 
 ## Technische Herausforderungen und Lösungen
@@ -441,6 +440,7 @@ for NODE_IP in $NODE_IPS; do
     ssh ubuntu@$NODE_IP 'sudo k3s ctr images import /tmp/sensor-anomaly-processor.tar'
 done
 ```
+Falls scheitert gibt es ein Fallback, der dazu führt, dass das Image nur auf dem Master läuft
 
 ### Challenge: HPA Configuration für Demo
 

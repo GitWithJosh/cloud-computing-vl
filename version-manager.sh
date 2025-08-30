@@ -1064,11 +1064,6 @@ cleanup_ml_jobs() {
 # KAFKA CLUSTER FUNCTIONS (Aufgabe 5)
 # ========================================
 
-# ========================================
-# KAFKA CLUSTER FUNCTIONS (Aufgabe 5) - VOLLSTÄNDIG
-# Füge alle diese Funktionen zu deinem version-manager.sh hinzu
-# ========================================
-
 setup_kafka() {
     local master_ip=$(terraform output -raw master_ip 2>/dev/null)
     local ssh_key=$(get_ssh_key)
@@ -1086,7 +1081,6 @@ setup_kafka() {
     echo "   - Enabling Kafka Manager Web UI"
     echo ""
     
-    # --- Lokale Pfade zu den YAML-Dateien ---
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local kafka_cluster_yaml="$script_dir/big-data/kafka-cluster.yaml"
     
@@ -1098,7 +1092,6 @@ setup_kafka() {
     
     echo "Using Kafka Cluster configuration from: $kafka_cluster_yaml"
     
-    # Kopiere YAML-Datei auf Remote-Server
     scp -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no "$kafka_cluster_yaml" ubuntu@$master_ip:/tmp/kafka-cluster.yaml
     
     ssh -i ~/.ssh/$ssh_key -o StrictHostKeyChecking=no ubuntu@$master_ip "
