@@ -66,15 +66,6 @@ Dieses Dokument begründet die bewussten Technologie-Entscheidungen für eine Im
 
 ---
 
-## 🔄 Deployment Strategy: **Zero-Downtime mit Terraform Workspaces**
-
-**Warum gewählt:**
-- **True Immutable Infrastructure** - komplette neue Infrastruktur
-- **Risk Mitigation** - Health Checks + automatischer Rollback
-- **Production-ready** - echte Zero-Downtime
-
----
-
 ## 🗄️ Objekt-Storage: **MinIO**
 
 **Warum gewählt:**

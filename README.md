@@ -23,17 +23,6 @@ Das Projekt erfüllt **alle Anforderungen** der Portfolio-Prüfung "Cloud Comput
 - ✅ **Aufgabe 3**: Multi-Node Kubernetes-Architektur mit skalierbarer Anwendung
 - ✅ **Aufgabe 4**: Data Lake / Big Data-Processing
 
-### 🏆 **Bonus-Features:**
-
-- 🚀 **Zero-Downtime Deployments** mit Terraform Workspaces
-- 🌐 **Ingress Controller** (Traefik) für externe Erreichbarkeit
-- 📊 **Real-time Monitoring** mit Prometheus + Grafana
-- 🤖 **AI/ML Integration** mit Google Gemini API
-- ⚡ **Horizontal Pod Autoscaler** mit Custom Metrics
-- 🔄 **Blue-Green Deployment Strategy**
-- 🗄️ **Cloud Native Datalake** mit MinIO
-- 📚 **Batch Verarbeitung mit ML Bibliothek** Spark MLlib
-
 ## 🏗️ Architektur
 
 ```
